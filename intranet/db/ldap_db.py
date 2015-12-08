@@ -103,6 +103,8 @@ class LDAPConnection(object):
 
             # logger.debug(_thread_locals.ldap_conn.whoami_s())
 
+        logger.debug("simple bind: {}".format(_thread_locals.simple_bind))
+
         return _thread_locals.ldap_conn
 
     def did_use_simple_bind(self):
@@ -111,7 +113,7 @@ class LDAPConnection(object):
 
         """
 
-        return getattr(_thread_locals, "simple_bind", False)
+        return getattr(_thread_locals, "simple_bind", None)
 
     def search(self, dn, filter, attributes):
         """Search LDAP and return an :class:`LDAPResult`.
@@ -209,6 +211,9 @@ class LDAPConnection(object):
 
         if isinstance(value, (list, tuple)):
             value = [str(v) for v in value]
+
+        if isinstance(value, bool):
+            value = [str(value).upper()]
 
         new_entry = {
             attribute: value

@@ -191,19 +191,25 @@ def save_privacy_options(request, user):
             fields = privacy_options_form.cleaned_data
             logger.debug(fields)
             for field in fields:
-                if field in privacy_options and privacy_options[field] == fields[field]:
-                    logger.debug("{}: same ({})".format(field, fields[field]))
-                else:
-                    logger.debug("{}: new: {} from: {}".format(field,
-                                                               fields[field],
-                                                               privacy_options[field] if field in privacy_options else None))
-                    try:
-                        user.set_ldap_attribute(field, fields[field], request.user.is_eighth_admin)
-                    except Exception as e:
-                        messages.error(request, "Field {} with value {}: {}".format(field, fields[field], e))
-                        logger.debug("Field {} with value {}: {}".format(field, fields[field], e))
+                if field in privacy_options:
+                    if privacy_options[field] == fields[field]:
+                        logger.debug("{}: same ({})".format(field, fields[field]))
                     else:
-                        messages.success(request, "Set field {} to {}".format(field, fields[field] if not isinstance(fields[field], list) else ", ".join(fields[field])))
+                        logger.debug("{}: new: {} from: {}".format(field,
+                                                                   fields[field],
+                                                                   privacy_options[field] if field in privacy_options else None))
+                        try:
+                            if field.startswith("photoperm"):
+                                user.set_photo_ldap_attribute(field, fields[field])
+                            else:
+                                user.set_raw_ldap_attribute(field, fields[field])
+                        except Exception as e:
+                            messages.error(request, "Field {} with value {}: {}".format(field, fields[field], e))
+                            logger.debug("Field {} with value {}: {}".format(field, fields[field], e))
+                        else:
+                            messages.success(request, "Set field {} to {}".format(field, fields[field] if not isinstance(fields[field], list) else ", ".join(fields[field])))
+                else:
+                    messages.error(request, "Field {} value {} not in privacy options".format(field, fields[field]))
     return privacy_options_form
 
 

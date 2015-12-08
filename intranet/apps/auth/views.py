@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 
 import os
 import random
+import time
 import logging
 from datetime import date, datetime
 from intranet import settings
@@ -118,6 +119,7 @@ class login_view(View):
             # Initial load into session
             if "KRB5CCNAME" in os.environ:
                 request.session["KRB5CCNAME"] = os.environ["KRB5CCNAME"]
+            request.session["login_time"] = time.time()
             logger.info("Login succeeded as {}".format(request.POST.get("username", "unknown")))
             logger.info("request.user: {}".format(request.user))
 

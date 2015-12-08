@@ -1439,6 +1439,62 @@ class User(AbstractBaseUser, PermissionsMixin):
         c = LDAPConnection()
         c.set_attribute(self.dn, field_name, value)
 
+    def set_photo_ldap_attribute(self, field_name, value):
+        """Set permissions for a user photo in LDAP.
+        """
+        from ldap.modlist import modifyModlist
+
+        if self.dn is None:
+            raise Exception("Could not determine DN of User")        
+
+        if "photoperm-" in field_name:
+            field_name = field_name.split("photoperm-")[1]
+
+        field_convert = {
+            "freshman": ("freshmanPhoto", "showpicture"),
+            "freshman-self": ("freshmanPhoto", "showpictureself"),
+            "sophomore": ("sophomorePhoto", "showpicture"),
+            "sophomore-self": ("sophomorePhoto", "showpictureself"),
+            "junior": ("juniorPhoto", "showpicture"),
+            "junior-self": ("juniorPhoto", "showpictureself"),
+            "senior": ("seniorPhoto", "showpicture"),
+            "senior-self": ("seniorPhoto", "showpictureself"),
+        }
+
+        if field_name not in field_convert:
+            raise Exception("Invalid photo LDAP attribute name.")
+
+        photo_dn_name, photo_attr_name = field_convert[field_name]    
+
+        photo_dn = "cn={},{}".format(photo_dn_name, self.dn)
+
+        c = LDAPConnection()
+
+        old_val = c.search(photo_dn, "(objectClass=*)", [photo_attr_name])
+        old_val = old_val[0][1]
+        if photo_attr_name in old_val:
+            old_val = photo_attr_name[old_val]
+        else:
+            old_val = photo_attr_name["perm-{}".format(old_val)]
+
+        old_entry = {
+            photo_attr_name: old_val
+        }
+
+        if isinstance(value, (list, tuple)):
+            value = [str(v) for v in value]
+
+        if isinstance(value, bool):
+            value = [str(value).upper()]
+
+        new_entry = {
+            photo_attr_name: value
+        }
+
+        mod = modifyModlist(old_entry, new_entry)
+        logger.debug(mod)
+        c.conn.modify_s(photo_dn, mod)
+
     def clear_cache(self):
         logger.debug("Clearing LDAP user cache for {}".format(self.dn))
         for attr in User.ldap_user_attributes:
