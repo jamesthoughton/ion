@@ -165,7 +165,8 @@ SESSION_REDIS_PORT = 6379
 SESSION_REDIS_DB = 0
 SESSION_REDIS_PREFIX = VIRTUAL_ENV + ":session"
 
-SESSION_COOKIE_AGE = 60 * 60 * 2
+# No TTL means redis doesn't evict sessions in low memory situations.
+SESSION_COOKIE_AGE = None
 SESSION_SAVE_EVERY_REQUEST = True
 
 days = 60 * 60 * 24
