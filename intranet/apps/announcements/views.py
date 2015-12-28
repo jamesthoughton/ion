@@ -1,29 +1,26 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
-import re
 import logging
-import json
 import bleach
 from django import http
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.urlresolvers import reverse
 from django.shortcuts import render, redirect, get_object_or_404
-from intranet import settings
+from django.utils import timezone
 from ..auth.decorators import announcements_admin_required
 from ..groups.models import Group
-from ..users.models import User
 from ..dashboard.views import dashboard_view
 from .models import Announcement, AnnouncementRequest
 from .forms import AnnouncementForm, AnnouncementRequestForm
-from .notifications import (email_send, request_announcement_email,
+from .notifications import (request_announcement_email,
                             admin_request_announcement_email,
                             announcement_posted_twitter,
                             announcement_posted_email,
                             announcement_approved_email)
 
 logger = logging.getLogger(__name__)
+
 
 @login_required
 def view_announcements(request):
@@ -39,13 +36,12 @@ def view_announcements_archive(request):
     """
     return dashboard_view(request, show_widgets=False, show_expired=True)
 
+
 def announcement_posted_hook(request, obj):
-    """
-        Runs whenever a new announcement is created, or
+    """ Runs whenever a new announcement is created, or
         a request is approved and posted.
 
         obj: The Announcement object
-
     """
     logger.debug("Announcement posted")
 
@@ -64,28 +60,26 @@ def announcement_posted_hook(request, obj):
     else:
         logger.debug("Announcement notify off")
 
+
 def announcement_approved_hook(request, obj, req):
-    """
-        Runs whenever an administrator approves an
+    """ Runs whenever an administrator approves an
         announcement request.
 
         obj: the Announcement object
         req: the AnnouncementRequest object
-
     """
     announcement_approved_email(request, obj, req)
 
 
 @login_required
 def request_announcement_view(request):
-    """
-        The request announcement page
-
+    """ The request announcement page
     """
     if request.method == "POST":
         form = AnnouncementRequestForm(request.POST)
         logger.debug(form)
         logger.debug(form.data)
+
         if form.is_valid():
             teacher_objs = form.cleaned_data["teachers_requested"]
             logger.debug("teacher objs:")
@@ -103,12 +97,25 @@ def request_announcement_view(request):
 
                 ann = AnnouncementRequest.objects.get(id=obj.id)
                 logger.debug(teacher_objs)
+                approve_self = False
                 for teacher in teacher_objs:
                     ann.teachers_requested.add(teacher)
+                    if teacher == request.user:
+                        approve_self = True
                 ann.save()
 
-                request_announcement_email(request, form, obj)
-                messages.success(request, "Successfully added announcement request.")
+                if approve_self:
+                    ann.teachers_approved.add(teacher)
+                    ann.save()
+                    admin_request_announcement_email(request, form, ann)
+                    ann.admin_email_sent = True
+                    ann.save()
+
+                    messages.success(request, "Successfully added approved announcement request. An Intranet administrator "
+                                              "will review and post the announcement shortly. (Notification sent.)")
+                else:
+                    request_announcement_email(request, form, obj)
+                    messages.success(request, "Successfully added announcement request.")
                 return redirect("index")
         else:
             messages.error(request, "Error adding announcement request")
@@ -116,14 +123,13 @@ def request_announcement_view(request):
         form = AnnouncementRequestForm()
     return render(request, "announcements/request.html", {"form": form, "action": "add"})
 
+
 @login_required
 def approve_announcement_view(request, req_id):
-    """
-        The approve announcement page.
+    """ The approve announcement page.
         Teachers will be linked to this page from an email.
 
         req_id: The ID of the AnnouncementRequest
-
     """
     req = get_object_or_404(AnnouncementRequest, id=req_id)
 
@@ -157,7 +163,7 @@ def approve_announcement_view(request, req_id):
                 obj.save()
                 messages.success(request, "You did not approve this request.")
                 return redirect("index")
-    
+
     form = AnnouncementRequestForm(instance=req)
     context = {
         "form": form,
@@ -166,14 +172,13 @@ def approve_announcement_view(request, req_id):
     }
     return render(request, "announcements/approve.html", context)
 
+
 @announcements_admin_required
 def admin_approve_announcement_view(request, req_id):
-    """
-        The administrator approval announcement request page.
+    """ The administrator approval announcement request page.
         Admins will view this page through the UI.
 
         req_id: The ID of the AnnouncementRequest
-
     """
     req = get_object_or_404(AnnouncementRequest, id=req_id)
 
@@ -209,14 +214,13 @@ def admin_approve_announcement_view(request, req_id):
                 announcement_posted_hook(request, announcement)
 
                 messages.success(request, "Successfully approved announcement request. It has been posted.")
-                return redirect("index")
             else:
                 req.rejected = True
                 req.posted_by = request.user
                 req.save()
                 messages.success(request, "You did not approve this request. It will be hidden.")
-                return redirect("index")
-    
+            return redirect("index")
+
     form = AnnouncementRequestForm(instance=req)
     all_groups = Group.objects.all()
     context = {
@@ -230,9 +234,7 @@ def admin_approve_announcement_view(request, req_id):
 
 @announcements_admin_required
 def add_announcement_view(request):
-    """
-        Add an announcement
-
+    """ Add an announcement
     """
     if request.method == "POST":
         form = AnnouncementForm(request.POST)
@@ -252,31 +254,33 @@ def add_announcement_view(request):
         form = AnnouncementForm()
     return render(request, "announcements/add_modify.html", {"form": form, "action": "add"})
 
+
 @login_required
 def view_announcement_view(request, id):
-    """
-        View an announcement
+    """ View an announcement
 
         id: announcement id
-
     """
     announcement = get_object_or_404(Announcement, id=id)
 
     return render(request, "announcements/view.html", {"announcement": announcement})
 
+
 @announcements_admin_required
 def modify_announcement_view(request, id=None):
-    """
-        Modify an announcement
+    """ Modify an announcement
 
         id: announcement id
-
     """
     if request.method == "POST":
         announcement = Announcement.objects.get(id=id)
         form = AnnouncementForm(request.POST, instance=announcement)
         if form.is_valid():
             obj = form.save()
+            logger.debug(form.cleaned_data)
+            if "update_added_date" in form.cleaned_data and form.cleaned_data["update_added_date"]:
+                logger.debug("Update added date")
+                obj.added = timezone.now()
             # SAFE HTML
             obj.content = bleach.linkify(obj.content)
             obj.save()
@@ -287,16 +291,21 @@ def modify_announcement_view(request, id=None):
     else:
         announcement = Announcement.objects.get(id=id)
         form = AnnouncementForm(instance=announcement)
-    return render(request, "announcements/add_modify.html", {"form": form, "action": "modify", "id": id})
+
+    context = {
+        "form": form,
+        "action": "modify",
+        "id": id,
+        "announcement": announcement
+    }
+    return render(request, "announcements/add_modify.html", context)
 
 
 @announcements_admin_required
 def delete_announcement_view(request, id):
-    """
-        Delete an announcement
+    """ Delete an announcement
 
         id: announcement id
-
     """
     if request.method == "POST":
         post_id = None
@@ -315,10 +324,10 @@ def delete_announcement_view(request, id):
         announcement = get_object_or_404(Announcement, id=id)
         return render(request, "announcements/delete.html", {"announcement": announcement})
 
+
 @login_required
 def show_announcement_view(request):
-    """
-        Unhide an announcement that was hidden by the logged-in user.
+    """ Unhide an announcement that was hidden by the logged-in user.
 
         announcements_hidden in the user model is the related_name for
         "users_hidden" in the announcement model.
@@ -334,10 +343,10 @@ def show_announcement_view(request):
     else:
         return http.HttpResponseNotAllowed(["POST"], "HTTP 405: METHOD NOT ALLOWED")
 
+
 @login_required
 def hide_announcement_view(request):
-    """
-        Hide an announcement for the logged-in user.
+    """ Hide an announcement for the logged-in user.
 
         announcements_hidden in the user model is the related_name for
         "users_hidden" in the announcement model.
@@ -352,4 +361,3 @@ def hide_announcement_view(request):
         return http.Http404()
     else:
         return http.HttpResponseNotAllowed(["POST"], "HTTP 405: METHOD NOT ALLOWED")
-

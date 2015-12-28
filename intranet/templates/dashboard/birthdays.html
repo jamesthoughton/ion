@@ -6,50 +6,6 @@
         });
         </script>
     {% endif %}
-    <style type="text/css">
-    .birthdays-widget .widget-content {
-        padding: 5px 15px;
-    }
-
-    .birthdays-widget .widget-content table {
-        width: 100%;
-    }
-
-    .birthdays-widget .widget-title form {
-        display: inline;
-        float: right;
-    }
-
-    .birthdays-widget .birthday-field {
-        background: transparent;
-        border: 1px solid rgb(216,216,216);
-        padding: 2px 4px;
-        width: 14px;
-        text-align: center;
-    }
-
-    .birthdays-widget input[name="birthday_month"] {
-        margin-right: -3px;
-        border-right: 0;
-        padding-right: 5px;
-        text-align: right;
-    }
-
-    .birthdays-widget .slash {
-        color: black;
-    }
-
-    .birthdays-widget input[name="birthday_day"] {
-        margin-left: -2px;
-        border-left: 0;
-        text-align: left;
-    }
-
-    .birthdays-widget input[type="submit"] {
-        margin-top: 0;
-    }
-
-    </style>
     <div class="widget-title">
         <h2>
             Birthdays
@@ -73,7 +29,7 @@
                 <td>
                 {% for u in day.users %}
                     <a href="{% url 'user_profile' u.id %}">{{ u.full_name }}</a> ({{ u.grade.name|title }})
-                    {% if u.age %}turns {{ u.age|add:day.inc }}!{% endif %}
+                    {% if u.age and u.age != -1 %}turns {{ u.age|add:day.inc }}!{% endif %}
                     {% if not forloop.last %}<br />{% endif %}
                 {% empty %}
                     No birthdays!
@@ -92,7 +48,7 @@
                     <td>
                     {% for u in day.users %}
                         <a href="{% url 'user_profile' u.id %}">{{ u.full_name }}</a> ({{ u.grade.name|title }})
-                        {% if u.age %}turns {{ u.age|add:day.inc }}!{% endif %}
+                        {% if u.age and u.age != -1 %}turns {{ u.age|add:day.inc }}!{% endif %}
                         {% if not forloop.last %}<br />{% endif %}
                     {% empty %}
                         No birthdays!

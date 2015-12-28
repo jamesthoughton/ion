@@ -5,11 +5,11 @@ from django.contrib.auth.models import Group as DjangoGroup
 from django.db import models
 from django.db.models import Manager, Q
 from ..users.models import User
-from ..groups.models import Group
 from ..eighth.models import EighthScheduledActivity
 from ..announcements.models import Announcement
 from .notifications import event_approval_request
 from datetime import datetime
+
 
 class Link(models.Model):
     """A link about an item (Facebook event link, etc).
@@ -17,7 +17,9 @@ class Link(models.Model):
     url = models.URLField(max_length=2000)
     title = models.CharField(max_length=100)
 
+
 class EventManager(Manager):
+
     def visible_to_user(self, user):
         """Get a list of visible events for a given user (usually
         request.user).
@@ -33,42 +35,46 @@ class EventManager(Manager):
                                      Q(groups__isnull=True) |
                                      Q(user=user)))
 
+
 class Event(models.Model):
     """An event available to the TJ community.
 
-    title
-        The title for the event
-    description
-        A description about the event
-    links
-        Not currently used
-    created_time
-        Time created (automatically set)
-    last_modified_time
-        Time last modified (automatically set)
-    time
-        The date and time of the event
-    location
-        Where the event is located
-    user
-        The user who created the event.
-    scheduled_activity
-        An EighthScheduledActivity that should be linked with the event.
-    announcement
-        An Announcement that should be linked with the event.
-    groups
-        Groups that the event is visible to.
-    attending
-        A ManyToManyField of User objects that are attending the event.
-    approved
-        Boolean, whether the event has been approved and will be displayed.
-    approved_by
-        ForeignKey to User object, the user who approved the event.
-    rejected
-        Boolean, whether the event was rejected and shouldn't be shown in the
-        list of events that need to be approved.
-    rejected_by
-        ForeignKey to User object, the user who rejected the event.
+        title
+            The title for the event
+        description
+            A description about the event
+        links
+            Not currently used
+        created_time
+            Time created (automatically set)
+        last_modified_time
+            Time last modified (automatically set)
+        time
+            The date and time of the event
+        location
+            Where the event is located
+        user
+            The user who created the event.
+        scheduled_activity
+            An EighthScheduledActivity that should be linked with the event.
+        announcement
+            An Announcement that should be linked with the event.
+        groups
+            Groups that the event is visible to.
+        attending
+            A ManyToManyField of User objects that are attending the event.
+        show_attending
+            Boolean, whether users can mark if they are attending or not attending.
+        approved
+            Boolean, whether the event has been approved and will be displayed.
+        approved_by
+            ForeignKey to User object, the user who approved the event.
+        rejected
+            Boolean, whether the event was rejected and shouldn't be shown in the
+            list of events that need to be approved.
+        rejected_by
+            ForeignKey to User object, the user who rejected the event.
+
     """
     objects = EventManager()
 
@@ -84,10 +90,11 @@ class Event(models.Model):
 
     scheduled_activity = models.ForeignKey(EighthScheduledActivity, null=True, blank=True)
     announcement = models.ForeignKey(Announcement, null=True, blank=True, related_name="event")
-    
+
     groups = models.ManyToManyField(DjangoGroup, blank=True)
 
     attending = models.ManyToManyField(User, blank=True, related_name="attending")
+    show_attending = models.BooleanField(default=True)
 
     approved = models.BooleanField(default=False)
     rejected = models.BooleanField(default=False)
@@ -112,7 +119,6 @@ class Event(models.Model):
 
         return True
 
-
     def created_hook(self, request):
         """Run when an event is created.
         """
@@ -120,8 +126,17 @@ class Event(models.Model):
             # Send approval email
             event_approval_request(request, self)
 
-
-
+    @property
+    def is_this_year(self):
+        """Return whether the event was created after September 1st
+           of this school year."""
+        now = datetime.now().date()
+        ann = self.created_time.date()
+        if now.month < 9:
+            return ((ann.year == now.year and ann.month < 9) or
+                    (ann.year == now.year - 1 and ann.month >= 9))
+        else:
+            return (ann.year == now.year and ann.month >= 9)
 
     def __unicode__(self):
         if not self.approved:

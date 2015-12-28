@@ -46,8 +46,12 @@ class Group(auth_models.Group):
 
     @property
     def properties(self):
-        obj, created = GroupProperties.objects.get_or_create(group=self)
-        return obj
+        try:
+            props = self.groupproperties
+        except GroupProperties.DoesNotExist:
+            props, created = GroupProperties.objects.get_or_create(group=self)
+
+        return props
 
     class Meta:
         proxy = True
@@ -67,8 +71,6 @@ class GroupProperties(models.Model):
     """
     group = models.OneToOneField(Group)
     student_visible = models.BooleanField(default=False)
-
-
 
     def __unicode__(self):
         return "{}".format(self.group)

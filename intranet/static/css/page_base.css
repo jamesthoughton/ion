@@ -96,11 +96,11 @@ h1 {
     height: 100%;
     width: 300px;
     line-height: 24px;
-    margin: 0 3px 0 3px;
-    padding: 0;
+    margin: 0 0 0 3px;
+    padding: 0 0 0 5px;
     vertical-align: middle;
     font-family: "Open Sans", sans-serif;
-    font-size: 16px;
+    font-size: 13px;
     color: white;
     box-shadow: none;
     float: left;
@@ -136,7 +136,7 @@ h1 {
 
 .header .badged-item .dropdown-menu .absence-notification-icon {
     float: left;
-    margin: 5px 10px 50px 5px;
+    margin: 5px 20px 50px 5px;
 }
 
 .badge {
@@ -197,6 +197,61 @@ h1 {
 
 .badge.lightblue {
     background-color: rgb(0, 149, 255);
+}
+
+.badge.cancelled-badge {
+    font-size: 15px;
+    padding: 4px;
+}
+
+@media print {
+    .badge.red {
+        background: none;
+        color: rgb(255, 72, 72);
+        border: 1px solid rgb(255, 72, 72);
+    }
+
+    .badge.darkred {
+        background: none;
+        color: rgb(181, 0, 0);
+        border: 1px solid rgb(181, 0, 0);
+    }
+
+    .badge.purple {
+        background: none;
+        color: rgb(175, 0, 175);
+        border: 1px solid rgb(175, 0, 175);
+    }
+
+    .badge.green {
+        background: none;
+        color: rgb(55, 179, 113);
+        border: 1px solid rgb(55, 179, 113);
+    }
+
+    .badge.yellow {
+        background: none;
+        color: black;
+        border: 1px solid rgb(234, 234, 13);
+    }
+
+    .badge.orange {
+        background: none;
+        color: rgb(255, 184, 81);
+        border: 1px solid rgb(255, 184, 81);
+    }
+
+    .badge.blue {
+        background: none;
+        color: rgb(66, 66, 206);
+        border: 1px solid rgb(66, 66, 206);
+    }
+
+    .badge.lightblue {
+        background: none;
+        color: rgb(0, 149, 255);
+        border: 1px solid rgb(0, 149, 255);
+    }
 }
 
 .header .username {
@@ -367,6 +422,7 @@ ul.dropdown-menu.absence-notification .arrow {
     top: 0;
     left: 0;
     width: 100%;
+    cursor: pointer;
 }
 
 .nav a, .nav a:active, .nav a:visited {
@@ -416,9 +472,19 @@ ul.dropdown-menu.absence-notification .arrow {
     width: 28px;
     height: 28px;
     background-image: url("/static/img/icons.png");
-    background-size: 168px 56px; /*retinafy w/ this*/
+    background-size: 168px 84px; /*retinafy w/ this*/
     margin-left: auto;
     margin-right: auto;
+}
+
+.fa-nav-icon {
+    display: block;
+    min-width: 28px;
+    text-align: center;
+}
+
+ul.nav li a:hover .fa-nav-icon {
+    color: rgb(0, 85, 164);
 }
 
 .blank-icon, .nav .blank-icon, a:hover .blank-icon {
@@ -433,48 +499,72 @@ ul.dropdown-menu.absence-notification .arrow {
     background-position: 0 0;
 }
 
-.nav .selected .dashboard-icon, a:hover .dashboard-icon {
+.nav .selected .dashboard-icon {
     background-position: 0 28px;
+}
+
+.nav li:not(.selected) a:hover .dashboard-icon {
+    background-position: 0 56px;
 }
 
 .eighth-icon {
     background-position: -28px 0;
 }
 
-.nav .selected .eighth-icon, a:hover .eighth-icon {
+.nav .selected .eighth-icon {
     background-position: -28px 28px;
+}
+
+.nav li:not(.selected) a:hover .eighth-icon {
+    background-position: -28px 56px;
 }
 
 .events-icon {
     background-position: -56px 0;
 }
 
-.nav .selected .events-icon, a:hover .events-icon {
+.nav .selected .events-icon {
     background-position: -56px 28px;
+}
+
+.nav li:not(.selected) a:hover .events-icon {
+    background-position: -56px 56px;
 }
 
 .groups-icon {
     background-position: -84px 0;
 }
 
-.nav .selected .groups-icon, a:hover .groups-icon {
+.nav .selected .groups-icon {
     background-position: -84px 28px;
+}
+
+.nav li:not(.selected) a:hover .groups-icon {
+    background-position: -84px 56px;
 }
 
 .polls-icon {
     background-position: -112px 0;
 }
 
-.nav .selected .polls-icon, a:hover .polls-icon {
+.nav .selected .polls-icon {
     background-position: -112px 28px;
+}
+
+.nav li:not(.selected) a:hover .polls-icon {
+    background-position: -112px 56px;
 }
 
 .files-icon {
     background-position: -140px 0;
 }
 
-.nav .selected .files-icon, a:hover .files-icon {
+.nav .selected .files-icon {
     background-position: -140px 28px;
+}
+
+.nav li:not(.selected) a:hover .files-icon {
+    background-position: -140px 56px;
 }
 
 .primary-content {

@@ -8,6 +8,7 @@ from django.conf import settings
 class Migration(migrations.Migration):
 
     dependencies = [
+        ('auth', '0006_require_contenttypes_0002'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -20,7 +21,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
-            name='Answer_Votes',
+            name='AnswerVotes',
             fields=[
                 ('id', models.AutoField(verbose_name='ID', serialize=False, auto_created=True, primary_key=True)),
                 ('votes', models.DecimalField(default=0, max_digits=4, decimal_places=3)),
@@ -32,7 +33,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.AutoField(verbose_name='ID', serialize=False, auto_created=True, primary_key=True)),
                 ('num', models.IntegerField()),
-                ('info', models.CharField(max_length=100)),
+                ('info', models.CharField(max_length=1000)),
                 ('std', models.BooleanField(default=False)),
                 ('app', models.BooleanField(default=False)),
                 ('free_resp', models.CharField(max_length=1000)),
@@ -42,24 +43,15 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
-            name='Group',
-            fields=[
-                ('id', models.AutoField(verbose_name='ID', serialize=False, auto_created=True, primary_key=True)),
-                ('name', models.CharField(max_length=100)),
-                ('vote', models.BooleanField(default=True)),
-                ('modify', models.BooleanField(default=True)),
-                ('view', models.BooleanField(default=True)),
-            ],
-        ),
-        migrations.CreateModel(
             name='Poll',
             fields=[
                 ('id', models.AutoField(verbose_name='ID', serialize=False, auto_created=True, primary_key=True)),
-                ('name', models.CharField(max_length=100)),
-                ('info', models.CharField(max_length=500)),
+                ('title', models.CharField(max_length=100)),
+                ('description', models.CharField(max_length=500)),
                 ('start_time', models.DateTimeField()),
                 ('end_time', models.DateTimeField()),
                 ('visible', models.BooleanField(default=False)),
+                ('groups', models.ManyToManyField(to='auth.Group', blank=True)),
             ],
         ),
         migrations.CreateModel(
@@ -73,27 +65,22 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.AddField(
-            model_name='group',
-            name='poll',
-            field=models.ForeignKey(to='polls.Poll'),
-        ),
-        migrations.AddField(
             model_name='choice',
             name='question',
             field=models.ForeignKey(to='polls.Question'),
         ),
         migrations.AddField(
-            model_name='answer_votes',
+            model_name='answervotes',
             name='choice',
             field=models.ForeignKey(to='polls.Choice'),
         ),
         migrations.AddField(
-            model_name='answer_votes',
+            model_name='answervotes',
             name='question',
             field=models.ForeignKey(to='polls.Question'),
         ),
         migrations.AddField(
-            model_name='answer_votes',
+            model_name='answervotes',
             name='users',
             field=models.ManyToManyField(to=settings.AUTH_USER_MODEL),
         ),

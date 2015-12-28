@@ -10,17 +10,20 @@ logger = logging.getLogger(__name__)
 
 
 class ActivityDisplayField(forms.ModelChoiceField):
+
     def label_from_instance(self, obj):
         return "{}: {}".format(obj.aid, obj.name)
 
 
 class ActivityMultiDisplayField(forms.ModelMultipleChoiceField):
+
     def label_from_instance(self, obj):
         return "{}: {}".format(obj.aid, obj.name)
 
+
 class ActivitySelectionForm(forms.Form):
 
-    def __init__(self, label="Activity", block=None, sponsor=None, *args, **kwargs):
+    def __init__(self, label="Activity", block=None, sponsor=None, include_cancelled=False, *args, **kwargs):
         super(ActivitySelectionForm, self).__init__(*args, **kwargs)
 
         if block is not None:
@@ -31,25 +34,28 @@ class ActivitySelectionForm(forms.Form):
                 activity_ids = (EighthScheduledActivity.objects
                                                        .filter(block=block)
                                                        .filter(sponsoring_filter)
-                                                       .values_list("activity__id", flat=True))
+                                                       .values_list("activity__id", flat=True)
+                                                       .nocache())
             else:
                 activity_ids = (EighthScheduledActivity.objects
                                                        .exclude(activity__deleted=True)
-                                                       .exclude(cancelled=True)
                                                        .filter(block=block)
-                                                       .values_list("activity__id", flat=True))
+                                                       .values_list("activity__id", flat=True)
+                                                       .nocache())
+                if not include_cancelled:
+                    activity_ids = activity_ids.exclude(cancelled=True)
+
             queryset = (EighthActivity.objects.filter(id__in=activity_ids)
                                               .order_by("name"))
         else:
             if sponsor is not None:
                 queryset = (EighthActivity.undeleted_objects
                                           .filter(sponsors=sponsor)
-                                          .order_by("name"))
+                                          .order_by("name")).nocache()
             else:
                 queryset = (EighthActivity.undeleted_objects
                                           .all()
-                                          .order_by("name"))
-
+                                          .order_by("name")).nocache()
 
         self.fields["activity"] = ActivityDisplayField(queryset=queryset,
                                                        label=label,
@@ -61,6 +67,7 @@ class QuickActivityForm(forms.ModelForm):
     class Meta:
         model = EighthActivity
         fields = ["name"]
+
 
 class ActivityMultiSelectForm(forms.Form):
     activities = ActivityMultiDisplayField(queryset=None)
@@ -79,14 +86,16 @@ class ScheduledActivityMultiSelectForm(forms.Form):
         if block is not None:
             activity_ids = (EighthScheduledActivity.objects
                                                    .exclude(activity__deleted=True)
-                                                   .exclude(cancelled=True)
+                            #.exclude(cancelled=True)
                                                    .filter(block=block)
-                                                   .values_list("activity__id", flat=True))
+                                                   .values_list("activity__id", flat=True)
+                                                   .nocache())
             queryset = (EighthActivity.objects.filter(id__in=activity_ids)
                                               .order_by("name"))
         else:
             queryset = (EighthActivity.undeleted_objects.all()
-                                                        .order_by("name"))
+                                                        .order_by("name")
+                                                        .nocache())
 
         logger.debug(queryset)
         self.fields["activities"].queryset = queryset
@@ -120,7 +129,7 @@ class ActivityForm(forms.ModelForm):
             "description",
             "sponsors",
             "rooms",
-            "aid",
+            "id",
             "presign",
             "one_a_day",
             "both_blocks",

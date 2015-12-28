@@ -2,6 +2,7 @@
 from __future__ import unicode_literals
 
 import logging
+from cacheops import invalidate_obj
 from datetime import datetime, timedelta
 from django import http
 from django.contrib import messages
@@ -76,6 +77,8 @@ def edit_profile_view(request, user_id=None):
                 else:
                     messages.success(request, "Set field {} to {}".format(key, new_data[key]))
         user.save()
+        invalidate_obj(user)
+        user.clear_cache()
     else:
         form = ProfileEditForm(initial=defaults)
 
@@ -84,6 +87,7 @@ def edit_profile_view(request, user_id=None):
         "form": form
     }
     return render(request, "eighth/edit_profile.html", context)
+
 
 def get_profile_context(request, user_id=None, date=None):
     if user_id:
@@ -94,17 +98,23 @@ def get_profile_context(request, user_id=None, date=None):
     else:
         profile_user = request.user
 
-    if profile_user != request.user and not request.user.is_eighth_admin:
-        return render(request, "error/403.html", {"reason": "You may only view your own schedule."}, status=403)
+    if profile_user != request.user and not (request.user.is_eighth_admin or request.user.is_teacher):
+        return False
 
-    custom_date_set = False
-    if date:
-        custom_date_set = True
-    elif "date" in request.GET:
-        date = request.GET.get("date")
-        date = datetime.strptime(date, "%Y-%m-%d")
-        custom_date_set = True
-    else:
+    try:
+        custom_date_set = False
+        if date:
+            custom_date_set = True
+        elif "date" in request.GET:
+            date = request.GET.get("date")
+            date = datetime.strptime(date, "%Y-%m-%d")
+            custom_date_set = True
+        elif "start_date" in request.session:
+            logger.debug(get_start_date(request))
+            date = get_start_date(request)
+        else:
+            date = datetime.now()
+    except Exception:
         date = datetime.now()
 
     date_end = date + timedelta(days=14)
@@ -152,20 +162,109 @@ def get_profile_context(request, user_id=None, date=None):
         sponsor = EighthSponsor.objects.get(user=profile_user)
         start_date = get_start_date(request)
         eighth_sponsor_schedule = (EighthScheduledActivity.objects.for_sponsor(sponsor)
-                                                                   .filter(block__date__gte=start_date)
-                                                                   .order_by("block__date",
-                                                                             "block__block_letter"))
+                                   .filter(block__date__gte=start_date)
+                                   .order_by("block__date",
+                                             "block__block_letter"))
+        eighth_sponsor_schedule = eighth_sponsor_schedule[:10]
 
         logger.debug("Eighth sponsor {}".format(sponsor))
 
-        context.update({"eighth_sponsor_schedule": eighth_sponsor_schedule})
+        context["eighth_sponsor_schedule"] = eighth_sponsor_schedule
 
     return context
+
 
 @login_required
 def profile_view(request, user_id=None):
     context = get_profile_context(request, user_id)
-    return render(request, "eighth/profile.html", context)
+    if context:
+        return render(request, "eighth/profile.html", context)
+    else:
+        return render(request, "error/403.html", {"reason": "You may only view your own schedule."}, status=403)
+
+
+@login_required
+def profile_history_view(request, user_id=None):
+    if user_id:
+        try:
+            profile_user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            raise http.Http404
+    else:
+        profile_user = request.user
+
+    if profile_user != request.user and not (request.user.is_eighth_admin or request.user.is_teacher):
+        return render(request, "error/403.html", {"reason": "You may only view your own schedule."}, status=403)
+
+    if profile_user.is_eighth_sponsor and request.user.is_eighth_admin:
+        return redirect("eighth_admin_sponsor_schedule", profile_user.get_eighth_sponsor().id)
+
+    blocks = EighthBlock.objects.get_blocks_this_year()
+    blocks = blocks.filter(locked=True)
+    blocks = blocks.order_by("date", "block_letter")
+
+    eighth_schedule = []
+
+    for block in blocks:
+        sch = {}
+        sch["block"] = block
+        try:
+            sch["signup"] = EighthSignup.objects.get(scheduled_activity__block=block, user=profile_user)
+            sch["highlighted"] = (int(request.GET.get("activity") or 0) == sch["signup"].scheduled_activity.activity.id)
+        except EighthSignup.DoesNotExist:
+            sch["signup"] = None
+        eighth_schedule.append(sch)
+
+    logger.debug(eighth_schedule)
+
+    context = {
+        "profile_user": profile_user,
+        "eighth_schedule": eighth_schedule
+    }
+
+    return render(request, "eighth/profile_history.html", context)
+
+
+@login_required
+def profile_often_view(request, user_id=None):
+    if user_id:
+        try:
+            profile_user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            raise http.Http404
+    else:
+        profile_user = request.user
+
+    if profile_user != request.user and not (request.user.is_eighth_admin or request.user.is_teacher):
+        return render(request, "error/403.html", {"reason": "You may only view your own schedule."}, status=403)
+
+    blocks = EighthBlock.objects.get_blocks_this_year()
+    blocks = blocks.filter(locked=True)
+
+    signups = EighthSignup.objects.filter(user=profile_user, scheduled_activity__block__in=blocks)
+    activities = []
+    for sch in signups:
+        activities.append(sch.scheduled_activity.activity)
+
+    oftens = []
+    unique_activities = set(activities)
+    for act in unique_activities:
+        oftens.append({
+            "count": activities.count(act),
+            "activity": act
+        })
+
+    oftens = sorted(oftens, key=lambda x: (-1 * x["count"]))
+
+    logger.debug(oftens)
+
+    context = {
+        "profile_user": profile_user,
+        "oftens": oftens
+    }
+
+    return render(request, "eighth/profile_often.html", context)
+
 
 @login_required
 def profile_signup_view(request, user_id=None, block_id=None):
@@ -216,5 +315,7 @@ def profile_signup_view(request, user_id=None, block_id=None):
         "active_block_current_signup": active_block_current_signup,
         "show_eighth_profile_link": True
     }
-    context.update(get_profile_context(request, user_id, block.date))
+    profile_ctx = get_profile_context(request, user_id, block.date)
+    if profile_ctx:
+        context.update(profile_ctx)
     return render(request, "eighth/profile_signup.html", context)

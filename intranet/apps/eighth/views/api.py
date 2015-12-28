@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 import logging
-import json
 
 from django.http import Http404
-from django.shortcuts import get_object_or_404
 from rest_framework import generics, views, status
 from rest_framework.response import Response
 from intranet.apps.users.models import User
@@ -89,6 +87,9 @@ class EighthUserSignupListAdd(generics.ListCreateAPIView):
             force = serializer.validated_data['force']
         else:
             force = False
+
+        if force and not request.user.is_eighth_admin:
+            return Response({"error": "You are not an administrator."}, status=status.HTTP_400_BAD_REQUEST)
 
         schactivity.add_user(user, request, force=force)
 

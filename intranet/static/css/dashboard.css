@@ -32,6 +32,13 @@
     behavior: url("/static/js/PIE/PIE.htc");
 }
 
+.announcement h3 {
+    cursor: pointer;
+}
+
+.announcement.announcement-meta h3 {
+    cursor: initial;
+}
 
 .announcement h3 > a.announcement-link {
     cursor: pointer;
@@ -69,7 +76,13 @@
 }
 
 .announcement-icon-wrapper > a:hover {
-    color: rgb(32,66,224);
+    color: rgb(32, 66, 224);
+}
+
+
+.announcement h3:hover .announcement-toggle,
+.announcement h3 .announcement-toggle:hover {
+    color: rgb(32, 66, 224);
 }
 
 .announcement-icon {
@@ -152,4 +165,13 @@
     div.announcement.announcement-meta {
         display: none;
     }
+}
+
+
+
+div[data-placeholder]:not(:focus):not([data-div-placeholder-content]):before {
+    content: attr(data-placeholder);
+    float: left;
+    margin-left: 5px;
+    color: rgb(72, 72, 72);
 }

@@ -25,6 +25,7 @@ apt-get -y install python-pip
 pip install virtualenv
 pip install virtualenvwrapper
 apt-get -y install python-dev
+apt-get -y install libjpeg8-dev
 
 # LDAP
 apt-get -y install ldap-utils
@@ -37,6 +38,12 @@ apt-get -y install libsasl2-modules-gssapi-mit
 apt-get -y install git
 sudo -i -u vagrant git config --global user.name "$(devconfig name)"
 sudo -i -u vagrant git config --global user.email "$(devconfig email)"
+
+# CUPS Printing
+apt-get -y install cups
+apt-get -y install cups-bsd
+apt-get -y install cups-client
+echo "ServerName cups2.csl.tjhsst.edu" > /etc/cups/client.conf
 
 # Shell
 cp intranet/config/bash_completion.d/fab /etc/bash_completion.d/fab
@@ -72,20 +79,6 @@ echo | ./install_server.sh
 cd ../..
 rm -rf redis-stable redis-stable.tar.gz
 
-# Elasticsearch
-add-apt-repository -y ppa:webupd8team/java
-apt-get update
-echo debconf shared/accepted-oracle-license-v1-1 select true | debconf-set-selections
-echo debconf shared/accepted-oracle-license-v1-1 seen true | debconf-set-selections
-apt-get -y install oracle-java7-installer
-wget -qO - https://packages.elastic.co/GPG-KEY-elasticsearch | apt-key add -
-echo "deb http://packages.elastic.co/elasticsearch/1.4/debian stable main" | sudo tee -a /etc/apt/sources.list
-apt-get update && apt-get install elasticsearch
-echo "network.bind_host: localhost" >> /etc/elasticsearch/elasticsearch.yml
-echo "script.disable_dynamic: true" >> /etc/elasticsearch/elasticsearch.yml
-update-rc.d elasticsearch defaults 95 10
-service elasticsearch restart
-
 # Ion
 grep -qs AUTHUSER_PASSWORD intranet/intranet/settings/secret.py || echo "AUTHUSER_PASSWORD = \"$(devconfig ldap_simple_bind_password)\"" >> intranet/intranet/settings/secret.py
 master_pwd='swordfish'
@@ -99,6 +92,7 @@ sudo -i -u vagrant bash -c "
 "
 source .virtualenvs/ion/bin/activate
 cd intranet
+mkdir -p uploads
 ./manage.py migrate --noinput
 cd ..
 chown -R vagrant: /home/vagrant

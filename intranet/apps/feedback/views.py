@@ -2,21 +2,20 @@
 from __future__ import unicode_literals
 
 import logging
-from django import http
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect
+from django.shortcuts import render
 from intranet import settings
-from ..announcements.views import email_send
-from ..users.models import User
+from ..notifications.emails import email_send
 from .forms import FeedbackForm
+from .models import Feedback
 
 logger = logging.getLogger(__name__)
 
+
 def send_feedback_email(request, data):
-    comments = data["comments"]
     data["user"] = request.user
-    email = request.user.emails[0] if len(request.user.emails) > 0 else request.user.tj_email
+    email = request.user.tj_email if request.user and request.user.tj_email else "unknown-{}@tjhsst.edu".format(request.user)
     data["email"] = email
     data["remote_ip"] = (request.META["HTTP_X_FORWARDED_FOR"] if "HTTP_X_FORWARDED_FOR" in request.META else request.META.get("REMOTE_ADDR", ""))
     data["user_agent"] = request.META.get("HTTP_USER_AGENT")
@@ -25,6 +24,7 @@ def send_feedback_email(request, data):
     }
     email_send("feedback/email.txt", "feedback/email.html", data, "Feedback from {}".format(request.user), [settings.FEEDBACK_EMAIL], headers)
 
+
 @login_required
 def send_feedback_view(request):
     if request.method == "POST":
@@ -32,6 +32,9 @@ def send_feedback_view(request):
         if form.is_valid():
             logger.debug("Valid form")
             data = form.cleaned_data
+            logger.info("Feedback")
+            logger.info(data)
+            Feedback.objects.create(user=request.user, comments=data["comments"])
             send_feedback_email(request, data)
             messages.success(request, "Your feedback was sent. Thanks!")
     form = FeedbackForm()

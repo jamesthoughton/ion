@@ -10,9 +10,10 @@ import ldap.sasl
 import sys
 import os
 import datetime
+from six.moves import input
 
 # Run this on iodine.tjhsst.edu
-
+start_date = "2015-09-01"
 csl_realm = "CSL.TJHSST.EDU"
 host = "iodine.tjhsst.edu"
 ldap_realm = "CSL.TJHSST.EDU"
@@ -42,7 +43,6 @@ def user_attrs(uid, attr):
         r = ri[0][1]
     except IndexError:
         return ""
-
     return r[attr][0]
 
 os.system("mkdir -p fixtures/{eighth,users,announcements}")
@@ -58,7 +58,7 @@ f_announcements = open("fixtures/announcements/announcements.json", "w")
 
 con = mdb.connect("localhost",
                   "iodine",
-                  raw_input("Iodine MySQL password: "),
+                  input("Iodine MySQL password: "),
                   "iodine")
 
 cur = con.cursor()
@@ -72,8 +72,8 @@ bad_sa = []
 sponsor_pks = []
 room_pks = []
 
-########## BLOCKS ##########
-cur.execute("SELECT * FROM eighth_blocks WHERE date > '2014-09-01';")
+# BLOCKS #
+cur.execute("SELECT * FROM eighth_blocks WHERE date > '{}';".format(start_date))
 rows = cur.fetchall()
 
 for row in rows:
@@ -94,7 +94,7 @@ eighth_objects = []
 print("Blocks complete")
 
 
-########## SPONSORS ##########
+# SPONSORS #
 cur.execute("SELECT * FROM eighth_sponsors;")
 rows = cur.fetchall()
 seen_uids = set()
@@ -146,7 +146,7 @@ eighth_objects = []
 print("Sponsors complete")
 # print(sponsor_pks)
 
-########## ROOMS ##########
+# ROOMS #
 cur.execute("SELECT * FROM eighth_rooms;")
 rows = cur.fetchall()
 
@@ -166,8 +166,7 @@ json.dump(eighth_objects, f_rooms)
 eighth_objects = []
 print("Rooms complete")
 
-
-########## ACTIVITIES ##########
+# ACTIVITIES #
 cur.execute("SELECT * FROM eighth_activities;")
 rows = cur.fetchall()
 
@@ -204,7 +203,7 @@ json.dump(eighth_objects, f_activities)
 eighth_objects = []
 print("Activities complete")
 
-########## SCHEDULED ACTIVITIES ##########
+# SCHEDULED ACTIVITIES #
 cur.execute("SELECT * FROM eighth_block_map WHERE bid >= 2355;")
 rows = cur.fetchall()
 
@@ -244,9 +243,9 @@ json.dump(eighth_objects, f_s_activities)
 eighth_objects = []
 print("Scheduled activities complete")
 
-########## SIGNUPS ##########
+# SIGNUPS #
 block_pk_str = ",".join(map(str, block_pks))
-cur.execute("SELECT * FROM eighth_activity_map WHERE bid IN ({}) LIMIT 5000".format(block_pk_str))
+cur.execute("SELECT * FROM eighth_activity_map WHERE bid IN ({})".format(block_pk_str))
 rows = cur.fetchall()
 
 for pk, row in enumerate(rows):
@@ -292,8 +291,8 @@ user_objects = []
 print("Signups complete")
 print("Users complete")
 
-########## ANNOUNCEMENTS ##########
-cur.execute("SELECT * FROM news WHERE posted > '2014-09-01';")
+# ANNOUNCEMENTS #
+cur.execute("SELECT * FROM news WHERE posted > '{}';".format(start_date))
 rows = cur.fetchall()
 news = []
 for row in rows:

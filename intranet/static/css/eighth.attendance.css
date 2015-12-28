@@ -98,6 +98,8 @@ form .accept-all-passes {
     .pass-container.has-passes {
         position: absolute;
         left: 650px;
+        background: #f0f0f0;
+        padding: 0 30px;
     }
 
     .pass-container.has-passes.eighth-admin {
@@ -115,7 +117,7 @@ form .accept-all-passes {
 
 table.take-passes, table.take-attendance-roster {
     vertical-align: middle;
-    max-width: 500px;
+    max-width: 600px;
 }
 
 a.pass-form-submit-link.button {
@@ -151,6 +153,10 @@ a.pass-form-submit-link.button {
     color: rgb(72, 72, 72);
 }
 
+.user-link[data-user-id]:hover {
+    font-weight: bold;
+}
+
 .selectize-dropdown-content {
     max-height: 450px;
 }
@@ -163,6 +169,10 @@ a.pass-form-submit-link.button {
     float: right;
 }
 
+td.email-col {
+    font-size: 10px;
+}
+
 @media (max-width: 620px) {
     table.sponsoring-wizard-table {
         min-width: auto;
@@ -171,5 +181,129 @@ a.pass-form-submit-link.button {
 
     div.selectize-control {
         width: auto;
+    }
+
+    .email-col {
+        display: none;
+    }
+}
+
+@media print {
+    .selectize, .selectize *, .selectize-control, .selectize-control *, .selectize-control * * {
+        display: inline;
+        padding: 0;
+        margin: 0;
+        border: 0;
+        padding: 0 5px;
+        margin-right: 10px;
+    }
+
+    table.take-attendance-roster {
+        position: absolute;
+        left: 25px;
+        max-width: none;
+        /*width: 100%;
+        width: calc(100% - 25px);*/
+        table-layout: fixed;
+    }
+
+    .user-col > a {
+        display: inline-block;
+        page-break-inside: avoid;
+        height: auto;
+    }
+
+    .email-col {
+        width: 250px;
+    }
+
+    .take-attendance-roster tbody tr,
+    .take-attendance-roster tbody tr td {
+        border-bottom: 1px solid black;
+        padding-bottom: 5px;
+
+        height: 25px; /* for 32px height */
+        max-height: 25px;
+        vertical-align: middle;
+
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .take-attendance-roster tbody tr td {
+        border-right: 1px solid black;
+    }
+
+    .take-attendance-roster tbody tr td.user-col,
+    .take-attendance-roster tbody tr td.sid-col,
+    .take-attendance-roster tbody tr td.email-col {
+        padding-left: 5px;
+    }
+
+    .take-attendance-roster tbody tr td.email-col {
+        border-right: none;
+    }
+
+    .take-attendance-roster tbody tr td:last-child {
+        border-right: none;
+    }
+
+    .take-attendance-roster thead tr.members-header,
+    .take-attendance-roster thead tr.members-header td {
+        border: 1px solid black;
+        padding-bottom: 5px;
+    }
+
+    .take-attendance-roster thead tr.members-header th {
+        border-right: 1px solid black;
+    }
+
+    .take-attendance-roster thead tr.members-header th.user-col,
+    .take-attendance-roster thead tr.members-header th.sid-col,
+    .take-attendance-roster thead tr.members-header th.email-col {
+        padding-left: 5px;
+    }
+
+    .take-attendance-roster thead tr.members-header th.email-col {
+        border-right: none;
+    }
+
+    .take-attendance-roster thead tr.members-header th.grade-col {
+        text-align: center;
+        padding: 0 8px;
+    }
+
+    .take-attendance-roster thead tr.members-header th:last-child {
+        border-right: none;
+    }
+
+    .take-attendance-roster tbody tr {
+        border-left: 1px solid black;
+        border-right: 1px solid black;
+    }
+
+    .take-attendance-roster .email-col {
+        display: block;
+        border-bottom: 0;
+    }
+
+    .take-attendance-roster .sid-col {
+        display: none;
+    }
+
+    .take-attendance-roster.no-members,
+    .take-attendance-roster.no-members tbody,
+    .take-attendance-roster.no-members tbody tr,
+    .take-attendance-roster.no-members tbody tr td {
+        border: none;
+    }
+
+    .pass-container {
+        display: none;
+    }
+
+    .pass-container.has-passes {
+        display: block;
     }
 }

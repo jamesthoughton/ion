@@ -29,6 +29,8 @@ urlpatterns = [
     url(r"^/profile(?:/(?P<user_id>\d+))?$", profile.profile_view, name="eighth_profile"),
     url(r"^/profile(?:/(?P<user_id>\d+))/signup/(?P<block_id>\d+)?$", profile.profile_signup_view, name="eighth_profile_signup"),
     url(r"^/profile/edit(?:/(?P<user_id>\d+))?$", profile.edit_profile_view, name="eighth_edit_profile"),
+    url(r"^/profile/history(?:/(?P<user_id>\d+))?$", profile.profile_history_view, name="eighth_profile_history"),
+    url(r"^/profile/often(?:/(?P<user_id>\d+))?$", profile.profile_often_view, name="eighth_profile_often"),
 
     # Roster (for students/teachers)
     url(r"^/roster/(?P<scheduled_activity_id>\d+)$", attendance.roster_view, name="eighth_roster"),
@@ -39,6 +41,8 @@ urlpatterns = [
 
     # Admin
     url(r"^/admin$", general.eighth_admin_dashboard_view, name="eighth_admin_dashboard"),
+
+    url(r"^/display(?:/(?P<block_id>\d+))?$", signup.eighth_display_view, name="eighth_display"),
 ]
 
 eighth_admin_patterns = [
@@ -52,7 +56,6 @@ eighth_admin_patterns = [
     url(r"^blocks/print_rosters/(?P<block_id>\d+)$", blocks.print_block_rosters_view, name="eighth_admin_print_block_rosters"),
     url(r"^blocks/edit/(?P<block_id>\d+)$", blocks.edit_block_view, name="eighth_admin_edit_block"),
     url(r"^blocks/delete/(?P<block_id>\d+)$", blocks.delete_block_view, name="eighth_admin_delete_block"),
-    url(r"^blocks/add_multiple$", blocks.add_multiple_blocks_view, name="eighth_admin_add_multiple_blocks"),
 
     # Scheduling
     url(r"^scheduling/schedule$", scheduling.schedule_activity_view, name="eighth_admin_schedule_activity"),
@@ -60,6 +63,7 @@ eighth_admin_patterns = [
     url(r"^scheduling/transfer_students$", scheduling.transfer_students_view, name="eighth_admin_transfer_students"),
     url(r"^scheduling/transfer_students_action$", scheduling.transfer_students_action, name="eighth_admin_transfer_students_action"),
     url(r"^scheduling/distribute_students$", scheduling.distribute_students_view, name="eighth_admin_distribute_students"),
+    url(r"^scheduling/unsignup_students$", scheduling.unsignup_students_view, name="eighth_admin_unsignup_students"),
 
 
     # Attendance
@@ -77,6 +81,8 @@ eighth_admin_patterns = [
     url(r"^attendance/clear_absences/(?P<signup_id>\d+)$", admin_attendance.clear_absence_view, name="eighth_admin_clear_absence"),
     url(r"^attendance/open_passes$", admin_attendance.open_passes_view, name="eighth_admin_view_open_passes"),
     url(r"^attendance/open_passes/csv$", admin_attendance.open_passes_view, name="eighth_admin_view_open_passes_csv"),
+    url(r"^attendance/no_signups/(?P<block_id>\d+)$", admin_attendance.no_signups_roster, name="eighth_admin_no_signups_roster"),
+    url(r"^attendance/no_signups/csv/(?P<block_id>\d+)$", admin_attendance.no_signups_roster, name="eighth_admin_no_signups_csv"),
 
     # Groups
     url(r"^groups/add$", groups.add_group_view, name="eighth_admin_add_group"),
@@ -85,6 +91,7 @@ eighth_admin_patterns = [
     url(r"^groups/edit/(?P<group_id>\d+)$", groups.edit_group_view, name="eighth_admin_edit_group"),
     url(r"^groups/delete/(?P<group_id>\d+)$", groups.delete_group_view, name="eighth_admin_delete_group"),
     url(r"^groups/signup/(?P<group_id>\d+)$", groups.eighth_admin_signup_group, name="eighth_admin_signup_group"),
+    url(r"^groups/signup/action/(?P<group_id>\d+)$", groups.eighth_admin_signup_group_action, name="eighth_admin_signup_group_action"),
     url(r"^groups/distribute/(?P<group_id>\d+)$", groups.eighth_admin_distribute_group, name="eighth_admin_distribute_group"),
     url(r"^groups/distribute/unsigned$", groups.eighth_admin_distribute_unsigned, name="eighth_admin_distribute_unsigned"),
     url(r"^groups/distribute_action$", groups.eighth_admin_distribute_action, name="eighth_admin_distribute_action"),
@@ -111,6 +118,7 @@ eighth_admin_patterns = [
     url(r"^sponsors/schedule/(?P<sponsor_id>\d+)$", sponsors.sponsor_schedule_view, name="eighth_admin_sponsor_schedule"),
 
     url(r"^startdate$", general.edit_start_date_view, name="eighth_admin_edit_start_date"),
+    url(r"^cache$", general.cache_view, name="eighth_admin_cache"),
 
 ]
 

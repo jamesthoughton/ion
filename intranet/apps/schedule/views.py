@@ -6,14 +6,17 @@ from datetime import datetime, timedelta
 import calendar
 from django.contrib import messages
 from django.contrib.auth.decorators import user_passes_test, login_required
+from django.core.cache import cache
 from django.core.urlresolvers import reverse
 from django.http import HttpResponse
 from django.shortcuts import render, redirect
+from intranet import settings
 from .models import Block, DayType, Day, Time
 from .forms import DayTypeForm, DayForm
 
 logger = logging.getLogger(__name__)
 schedule_admin_required = user_passes_test(lambda u: not u.is_anonymous() and u.has_admin_permission("schedule"))
+
 
 def date_format(date):
     try:
@@ -53,68 +56,92 @@ def schedule_context(request=None, date=None):
             while not is_weekday(date):
                 date += timedelta(days=1)
 
-    try:
-        dayobj = Day.objects.get(date=date)
-    except Day.DoesNotExist:
-        dayobj = None
-
-    if dayobj is not None:
-        blocks = (dayobj.day_type
-                        .blocks
-                        .select_related("start", "end")
-                        .order_by("start__hour", "start__minute"))
+    date_fmt = date_format(date)
+    key = "bell_schedule:{}".format(date_fmt)
+    cached = cache.get(key)
+    if cached:
+        logger.debug("Returning schedule context for {} from cache.".format(date_fmt))
+        return cached
     else:
-        blocks = []
-
-    delta = 3 if date.isoweekday() == FRIDAY else 1
-    date_tomorrow = date_format(date + timedelta(days=delta))
-
-    delta = -3 if date.isoweekday() == MONDAY else -1
-    date_yesterday = date_format(date + timedelta(days=delta))
-
-    if request and request.user.is_authenticated() and request.user.is_eighth_admin:
         try:
-            schedule_tomorrow = Day.objects.get(date=date_tomorrow)
-            if not schedule_tomorrow.day_type:
-                schedule_tomorrow = False
+            dayobj = Day.objects.select_related("day_type").get(date=date)
+            comment = dayobj.comment
         except Day.DoesNotExist:
-            schedule_tomorrow = False
-    else:
-        schedule_tomorrow = None
+            dayobj = None
+            comment = None
 
-    return {
-        "sched_ctx": {
-            "dayobj": dayobj,
-            "blocks": blocks,
-            "date": date,
-            "is_weekday": is_weekday(date),
-            "date_tomorrow": date_tomorrow,
-            "date_yesterday": date_yesterday,
-            "schedule_tomorrow": schedule_tomorrow
+        if dayobj is not None:
+            blocks = (dayobj.day_type
+                            .blocks
+                            .select_related("start", "end")
+                            .order_by("start__hour", "start__minute"))
+        else:
+            blocks = []
+
+        delta = 3 if date.isoweekday() == FRIDAY else 1
+        date_tomorrow = date_format(date + timedelta(days=delta))
+
+        date_today = date_format(date)
+
+        delta = -3 if date.isoweekday() == MONDAY else -1
+        date_yesterday = date_format(date + timedelta(days=delta))
+
+        if request and request.user.is_authenticated() and request.user.is_eighth_admin:
+            try:
+                schedule_tomorrow = Day.objects.select_related("day_type").get(date=date_tomorrow)
+                logger.debug("tomorrow: {}".format(schedule_tomorrow))
+                if not schedule_tomorrow.day_type:
+                    schedule_tomorrow = False
+            except Day.DoesNotExist:
+                schedule_tomorrow = False
+        else:
+            schedule_tomorrow = None
+
+        data = {
+            "sched_ctx": {
+                "dayobj": dayobj,
+                "blocks": blocks,
+                "date": date,
+                "is_weekday": is_weekday(date),
+                "date_tomorrow": date_tomorrow,
+                "date_today": date_today,
+                "date_yesterday": date_yesterday,
+                "schedule_tomorrow": schedule_tomorrow,
+                "comment": comment
+            }
         }
-    }
+        cache.set(key, data, timeout=settings.CACHE_AGE['bell_schedule'])
+        logger.debug("Cached schedule context for {}".format(date_fmt))
+        return data
 
 # does NOT require login
+
+
 def schedule_view(request):
     data = schedule_context(request)
     return render(request, "schedule/view.html", data)
 
 # does NOT require login
+
+
 def schedule_embed(request):
     data = schedule_context(request)
     return render(request, "schedule/embed.html", data)
 
 # DOES require login
+
+
 @login_required
 def schedule_widget_view(request):
     data = schedule_context(request)
     return render(request, "schedule/widget.html", data)
 
+
 def get_day_data(firstday, daynum):
     if daynum == 0:
         return {"empty": True}
 
-    date = firstday + timedelta(days=daynum-1)
+    date = firstday + timedelta(days=daynum - 1)
     data = {
         "day": daynum,
         "formatted_date": date_format(date),
@@ -130,6 +157,7 @@ def get_day_data(firstday, daynum):
         data["dayobj"] = None
 
     return data
+
 
 @schedule_admin_required
 def do_default_fill(request):
@@ -176,23 +204,36 @@ def do_default_fill(request):
                     day_obj = Day.objects.create(date=day["formatted_date"], day_type=type_obj)
                     msg = "{} is now a {}".format(day["formatted_date"], day_obj.day_type)
                     msgs.append(msg)
-                    messages.success(request, msg)
+    return render(request, "schedule/fill.html", {"msgs": msgs})
 
-    return redirect("schedule_admin")
+
+def delete_cache():
+    cache.delete_pattern("bell_schedule:*")
+    logger.debug("Deleted bell schedule cache.")
+
 
 @schedule_admin_required
 def admin_home_view(request):
     if "default_fill" in request.POST:
         return do_default_fill(request)
 
+    if "delete_cache" in request.POST:
+        delete_cache()
+        messages.success(request, "Deleted schedule cache manually")
+        return redirect("schedule_admin")
 
     if "month" in request.GET:
         month = request.GET.get("month")
+    elif "schedule_month" in request.session:
+        month = request.session["schedule_month"]
     else:
         month = datetime.now().strftime("%Y-%m")
 
+    request.session["schedule_month"] = month
+
     firstday = datetime.strptime(month, "%Y-%m")
     month_name = firstday.strftime("%B")
+    year_name = firstday.strftime("%Y")
 
     yr, mn = month.split("-")
     cal = calendar.monthcalendar(int(yr), int(mn))
@@ -205,15 +246,15 @@ def admin_home_view(request):
 
     add_form = DayForm()
 
-
     this_month = firstday.strftime("%Y-%m")
     next_month = (firstday + timedelta(days=31)).strftime("%Y-%m")
     last_month = (firstday + timedelta(days=-31)).strftime("%Y-%m")
-    
+
     daytypes = DayType.objects.all()
 
     data = {
         "month_name": month_name,
+        "year_name": year_name,
         "sch": sch,
         "add_form": add_form,
         "this_month": this_month,
@@ -224,9 +265,11 @@ def admin_home_view(request):
 
     return render(request, "schedule/admin_home.html", data)
 
+
 @schedule_admin_required
 def admin_add_view(request):
     if request.method == "POST":
+        delete_cache()
         date = request.POST.get("date")
         day = Day.objects.filter(date=date)
         if len(day) <= 1:
@@ -247,10 +290,39 @@ def admin_add_view(request):
     }
     return render(request, "schedule/admin_add.html", context)
 
+
+@schedule_admin_required
+def admin_comment_view(request):
+    date = request.GET.get("date")
+    if request.method == "POST" and "comment" in request.POST:
+        delete_cache()
+        date = request.POST.get("date")
+        comment = request.POST.get("comment")
+        day, _ = Day.objects.get_or_create(date=date)
+        day.comment = comment
+        day.save()
+        return redirect("schedule_admin")
+    else:
+        try:
+            day = Day.objects.get(date=date)
+            comment = day.comment
+        except Day.DoesNotExist:
+            day = None
+            comment = None
+
+    context = {
+        "day": day,
+        "date": date,
+        "comment": comment
+    }
+
+    return render(request, "schedule/admin_comment.html", context)
+
+
 @schedule_admin_required
 def admin_daytype_view(request, id=None):
     if request.method == "POST":
-        
+        delete_cache()
         if "id" in request.POST:
             id = request.POST["id"]
 
@@ -291,8 +363,8 @@ def admin_daytype_view(request, id=None):
             blocks = zip(
                 request.POST.getlist('block_order'),
                 request.POST.getlist('block_name'),
-                [[int(j) if j else 0 for j in i.split(":")] if ":" in i else [9,0] for i in request.POST.getlist('block_start')],
-                [[int(j) if j else 0 for j in i.split(":")] if ":" in i else [10,0] for i in request.POST.getlist('block_end')]
+                [[int(j) if j else 0 for j in i.split(":")] if ":" in i else [9, 0] for i in request.POST.getlist('block_start')],
+                [[int(j) if j else 0 for j in i.split(":")] if ":" in i else [10, 0] for i in request.POST.getlist('block_end')]
             )
             logger.debug(blocks)
             model.blocks.all().delete()
@@ -307,10 +379,10 @@ def admin_daytype_view(request, id=None):
                     minute=blk[3][1]
                 )
                 bobj, bcr = Block.objects.get_or_create(
-                        order=blk[0],
-                        name=blk[1],
-                        start=start,
-                        end=end
+                    order=blk[0],
+                    name=blk[1],
+                    start=start,
+                    end=end
                 )
                 model.blocks.add(bobj)
             model.save()
@@ -326,7 +398,7 @@ def admin_daytype_view(request, id=None):
                     dayobj.save()
                 messages.success(request, "{} is now a {}".format(dayobj.date, dayobj.day_type))
 
-            messages.success(request, "Successfully added Day Type.")
+            messages.success(request, "Successfully {} Day Type.".format("modified" if id else "added"))
             return redirect("schedule_daytype", model.id)
         else:
             messages.error(request, "Error adding Day Type")

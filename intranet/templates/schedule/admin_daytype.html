@@ -2,7 +2,7 @@
 {% load staticfiles %}
 
 {% block title %}
-    {{ block.super}} - Schedule - {{ date }}
+    {{ block.super }} - Schedule - {{ date }}
 {% endblock %}
 
 {% block css %}
@@ -150,6 +150,9 @@
             <input type="hidden" name="delete" value="1" />
             <input type="submit" value="Delete" />
         </form>
+                </td>
+                <td valign="middle">
+                    For a line break, enter <b><code>&lt;br&gt;</code></b> in any field.
                 </td>
             </tr>
         </table>

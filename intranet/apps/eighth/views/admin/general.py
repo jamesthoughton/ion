@@ -1,15 +1,17 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
-from datetime import datetime
+
+from cacheops import invalidate_all
 from six.moves import cPickle as pickle
 from six.moves.urllib.parse import unquote
 from django.contrib import messages
 from django.shortcuts import render, redirect
+from intranet import settings
 from ....auth.decorators import eighth_admin_required
 from ....groups.models import Group
-from ...forms.admin import (
-    activities as activity_forms, blocks as block_forms, groups as group_forms,
-    rooms as room_forms, sponsors as sponsor_forms, general as general_forms)
+from ....users.models import User
+from ...forms.admin import (groups as group_forms,
+                            rooms as room_forms, general as general_forms)
 from ...models import EighthActivity, EighthBlock, EighthRoom, EighthSponsor
 from ...utils import get_start_date, set_start_date
 
@@ -27,9 +29,11 @@ def eighth_admin_dashboard_view(request, **kwargs):
     else:
         blocks_next_date = blocks_after_start_date[0].date
         blocks_next = EighthBlock.objects.filter(date=blocks_next_date)
-    groups = Group.objects.order_by("name")
+    groups = Group.objects.prefetch_related("user_set", "groupproperties").order_by("name")
     rooms = EighthRoom.objects.all()
     sponsors = EighthSponsor.objects.select_related('user').order_by("last_name", "first_name")
+
+    signup_users_count = User.objects.get_students().count()
 
     context = {
         "start_date": start_date,
@@ -40,6 +44,7 @@ def eighth_admin_dashboard_view(request, **kwargs):
         "sponsors": sponsors,
         "blocks_next": blocks_next,
         "blocks_next_date": blocks_next_date,
+        "signup_users_count": signup_users_count,
 
         "admin_page_title": "Eighth Period Admin",
 
@@ -52,11 +57,8 @@ def eighth_admin_dashboard_view(request, **kwargs):
     }
 
     forms = {
-        "add_activity_form": activity_forms.QuickActivityForm,
-        "add_block_form": block_forms.QuickBlockForm,
         "add_group_form": group_forms.QuickGroupForm,
         "add_room_form": room_forms.RoomForm,
-        "add_sponsor_form": sponsor_forms.SponsorForm
     }
 
     for form_name, form_class in forms.items():
@@ -102,6 +104,36 @@ def edit_start_date_view(request):
         "admin_page_title": "Change Start Date"
     }
     return render(request, "eighth/admin/edit_start_date.html", context)
+
+
+@eighth_admin_required
+def cache_view(request):
+    if request.method == "POST":
+        if "invalidate_all" in request.POST:
+            invalidate_all()
+            messages.success(request, "Invalidated all of the cache")
+
+    try:
+        opts = settings.CACHEOPS
+        default = settings.CACHEOPS_DEFAULTS
+    except AttributeError:
+        opts = default = None
+
+    cache = {}
+
+    for ctype in opts:
+        c = ctype.split(".")[0]
+        if "timeout" in opts[ctype]:
+            to = opts[ctype]["timeout"]
+        else:
+            to = default["timeout"]
+        cache[c] = int(to / (60 * 60))
+
+    context = {
+        "admin_page_title": "Cache Configuration",
+        "cache_length": cache
+    }
+    return render(request, "eighth/admin/cache.html", context)
 
 
 @eighth_admin_required

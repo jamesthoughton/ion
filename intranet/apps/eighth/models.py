@@ -4,16 +4,17 @@ from __future__ import unicode_literals
 from itertools import chain
 import logging
 import datetime
+from intranet import settings
 from django.db import models
 from django.db.models import Manager, Q
 from django.core.exceptions import ValidationError, NON_FIELD_ERRORS
 from django.contrib.auth.models import Group as DjangoGroup
 from django.utils import formats
 from ..users.models import User
-from ..groups.models import Group
 from . import exceptions as eighth_exceptions
 
 logger = logging.getLogger(__name__)
+
 
 class AbstractBaseEighthModel(models.Model):
     """Abstract base model that includes created and last modified times."""
@@ -66,6 +67,10 @@ class EighthSponsor(AbstractBaseEighthModel):
         else:
             return self.last_name
 
+    @property
+    def to_be_assigned(self):
+        return sum([x in self.name.lower() for x in ["to be assigned", "tba", "to be determined", "tbd", "to be announced"]])
+
     def __unicode__(self):
         return self.name
 
@@ -97,8 +102,13 @@ class EighthRoom(AbstractBaseEighthModel):
                 capacity += c
         return capacity
 
+    @property
+    def to_be_determined(self):
+        return sum([x in self.name.lower() for x in ["to be assigned", "tba", "to be determined", "tbd", "to be announced"]])
+
     def __unicode__(self):
         return "{} ({})".format(self.name, self.capacity)
+        # return "{}".format(self.name)
 
     class Meta:
         ordering = ("name",)
@@ -116,11 +126,6 @@ class EighthActivity(AbstractBaseEighthModel):
     """Represents an eighth period activity.
 
     Attributes:
-        aid
-            The AID (activity ID), not the same as the activity's ID necessarily. By default,
-            it is the same as the assigned ID. However, it can be changed to any alphanumeric
-            string that is between 1-10 characters. Don't set to the internal ID of another
-            activity, or to the AID of another activity.
         name
             The name of the activity, max length 100 characters.
         description
@@ -172,7 +177,6 @@ class EighthActivity(AbstractBaseEighthModel):
     objects = models.Manager()
     undeleted_objects = EighthActivityExcludeDeletedManager()
 
-    aid = models.CharField(max_length=10, blank=True) # Should be unique
     name = models.CharField(max_length=100)  # This should really be unique
     description = models.CharField(max_length=2000, blank=True)
     sponsors = models.ManyToManyField(EighthSponsor, blank=True)
@@ -213,6 +217,11 @@ class EighthActivity(AbstractBaseEighthModel):
         return EighthRoom.total_capacity_of_rooms(rooms)
 
     @property
+    def aid(self):
+        """ The publicly visible activity ID """
+        return self.id
+
+    @property
     def name_with_flags(self):
         """Return the activity name with special, both blocks,
         restricted, administrative, sticky, and deleted flags."""
@@ -244,7 +253,10 @@ class EighthActivity(AbstractBaseEighthModel):
         activities = set(user.restricted_activity_set
                              .values_list("id", flat=True))
 
-        grade = user.grade.number
+        if user and user.grade and user.grade.number:
+            grade = user.grade.number
+        else:
+            grade = None
 
         if grade == 9:
             activities |= set(EighthActivity.objects
@@ -269,35 +281,41 @@ class EighthActivity(AbstractBaseEighthModel):
 
         return list(activities)
 
-    def save(self, *args, **kwargs):
-        """When saving the model, update the AID to
-        be the internal ID if it is blank or None.
+    @classmethod
+    def available_ids(cls):
+        ID_MIN = 1
+        ID_MAX = 3200
+        nums = [i for i in range(ID_MIN, ID_MAX)]
+        used = [row[0] for row in EighthActivity.objects.values_list("id")]
+        avail = set(nums) - set(used)
+        return list(avail)
+
+    def change_id_to(self, new_id):
+        """ Changes the internal ID field.
+            Possible solution: https://djangosnippets.org/snippets/2691/ """
+        # EighthActivity.objects.filter(pk=self.pk).update(id=new_id)
+        pass
+
+    def get_active_schedulings(self):
+        """Return EighthScheduledActivity's of this activity
+           within the next two months.
         """
-        update_aid = False
+        first_block = EighthBlock.objects.get_first_upcoming_block()
+        two_months = datetime.datetime.now().date() + datetime.timedelta(days=62)
+        scheduled_activities = EighthScheduledActivity.objects.filter(activity=self)
+        scheduled_activities = scheduled_activities.filter(block__date__gte=first_block.date,
+                                                           block__date__lte=two_months)
 
+        return scheduled_activities
 
-        if not self.aid:
-            if self.pk:
-                self.aid = self.pk
-            else:
-                update_aid = True
-        else:
-            with_aid = EighthActivity.objects.filter(aid=self.aid)
-            if len(with_aid) == 0 or (len(with_aid) == 1 and with_aid[0] == self):
-                update_aid = False
-            else:
-                # aid is not unique
-                raise ValidationError("AID is not unique.")
-
-        super(EighthActivity, self).save(*args, **kwargs)
-
-        if update_aid:
-            # Update aid with new ID and re-save
-            self.aid = self.pk
-            # If save was originally called from create(), then we have force_insert=True.
-            # We need to filter that out to avoid a primary key conflict.
-            kwargs = {k: v for k,v in kwargs.items() if k != 'force_insert'}
-            super(EighthActivity, self).save(*args, **kwargs)
+    @property
+    def is_active(self):
+        """Return whether an activity is "active."
+           An activity is considered to be active if it
+           is scheduled within the next two months.
+        """
+        scheduled_activities = self.get_active_schedulings()
+        return scheduled_activities.count() > 0
 
     class Meta:
         verbose_name_plural = "eighth activities"
@@ -307,6 +325,27 @@ class EighthActivity(AbstractBaseEighthModel):
 
 
 class EighthBlockManager(models.Manager):
+
+    def get_upcoming_blocks(self, max_number=-1):
+        """Gets the X number of upcoming blocks (that will take place
+        in the future). If there is no block in the future, the most
+        recent block will be returned.
+
+        Returns: A QuerySet of `EighthBlock` objects
+
+        """
+
+        now = datetime.datetime.now()
+
+        # Show same day if it's before 17:00
+        if now.hour < 17:
+            now = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        blocks = self.order_by("date", "block_letter").filter(date__gte=now)
+        if max_number > 0:
+            return blocks[:max_number]
+
+        return blocks
 
     def get_first_upcoming_block(self):
         """Gets the first upcoming block (the first block that will
@@ -329,7 +368,7 @@ class EighthBlockManager(models.Manager):
     def get_next_upcoming_blocks(self):
         """Gets the next upccoming blocks. (Finds the other blocks
            that are occurring on the day of the first upcoming block.)
-            
+
            Returns: A QuerySet of `EighthBlock` objects.
 
         """
@@ -354,6 +393,18 @@ class EighthBlockManager(models.Manager):
 
         return block.get_surrounding_blocks()
 
+    def get_blocks_this_year(self):
+        """ Get a list of blocks that occur this school year. """
+        now = datetime.datetime.now().date()
+        if now.month < 9:
+            date_start = datetime.date(now.year - 1, 9, 1)
+            date_end = datetime.date(now.year, 7, 1)
+        else:
+            date_start = datetime.date(now.year, 9, 1)
+            date_end = datetime.date(now.year + 1, 7, 1)
+
+        return EighthBlock.objects.filter(date__gte=date_start, date__lte=date_end)
+
 
 class EighthBlock(AbstractBaseEighthModel):
 
@@ -366,7 +417,7 @@ class EighthBlock(AbstractBaseEighthModel):
             The recommended time at which all users should sign up.
             This does *not* prevent people from signing up at this
             time, however students will see the amount of time left
-            to sign up. Defaults to 12:30.
+            to sign up. Defaults to 12:40.
         block_letter
             The block letter (e.g. A, B, A1, A2, SOL).
             Despite its name, it can now be more than just a letter.
@@ -390,7 +441,7 @@ class EighthBlock(AbstractBaseEighthModel):
     objects = EighthBlockManager()
 
     date = models.DateField(null=False)
-    signup_time = models.TimeField(default=datetime.time(12,30))
+    signup_time = models.TimeField(default=datetime.time(12, 40))
     block_letter = models.CharField(max_length=10)
     locked = models.BooleanField(default=False)
     activities = models.ManyToManyField(EighthActivity,
@@ -412,9 +463,9 @@ class EighthBlock(AbstractBaseEighthModel):
         """Get the next blocks in order."""
         blocks = (EighthBlock.objects
                              .order_by("date", "block_letter")
-                             .filter(Q(date__gt=self.date)
-                                     | (Q(date=self.date)
-                                        & Q(block_letter__gt=self.block_letter))
+                             .filter(Q(date__gt=self.date) |
+                                     (Q(date=self.date) &
+                                      Q(block_letter__gt=self.block_letter))
                                      ))
         if quantity == -1:
             return blocks
@@ -424,9 +475,9 @@ class EighthBlock(AbstractBaseEighthModel):
         """Get the previous blocks in order."""
         blocks = (EighthBlock.objects
                              .order_by("-date", "-block_letter")
-                             .filter(Q(date__lt=self.date)
-                                     | (Q(date=self.date)
-                                        & Q(block_letter__lt=self.block_letter))
+                             .filter(Q(date__lt=self.date) |
+                                     (Q(date=self.date) &
+                                      Q(block_letter__lt=self.block_letter))
                                      ))
         if quantity == -1:
             return reversed(blocks)
@@ -449,9 +500,22 @@ class EighthBlock(AbstractBaseEighthModel):
     def signup_time_future(self):
         """Is the signup time in the future?"""
         now = datetime.datetime.now()
-        return (now.date() < self.date or 
+        return (now.date() < self.date or
                 (self.date == now.date() and
                  self.signup_time > now.time()))
+
+    def date_in_past(self):
+        """Is the block's date in the past? (Has it not yet happened?)"""
+        now = datetime.datetime.now()
+        return (now.date() > self.date)
+
+    def in_clear_absence_period(self):
+        """Is the current date in the block's clear absence period?
+           (Should info on clearing the absence show?)
+        """
+        now = datetime.datetime.now()
+        two_weeks = self.date + datetime.timedelta(days=settings.CLEAR_ABSENCE_DAYS)
+        return (now.date() <= two_weeks)
 
     def attendance_locked(self):
         """Is it past 10PM on the day of the block?"""
@@ -464,6 +528,15 @@ class EighthBlock(AbstractBaseEighthModel):
         """ How many people have signed up?"""
         return EighthSignup.objects.filter(scheduled_activity__block=self).count()
 
+    def num_no_signups(self):
+        """ How many people have not signed up?"""
+        signup_users_count = User.objects.get_students().count()
+        return signup_users_count - self.num_signups()
+
+    def get_unsigned_students(self):
+        """ Return a list of Users who haven't signed up for an activity. """
+        return User.objects.get_students().exclude(eighthsignup__scheduled_activity__block=self)
+
     @property
     def letter_width(self):
         return (len(self.block_letter) - 1) * 6 + 15
@@ -474,6 +547,23 @@ class EighthBlock(AbstractBaseEighthModel):
             return "Block {}".format(self.block_letter)
         else:
             return "{} Block".format(self.block_letter)
+
+    @property
+    def short_text(self):
+        """ Display the date and block letter (mm/dd B, e.x. "9/1 B") """
+        return ("{} {}".format(self.date.strftime("%m/%d"), self.block_letter))
+
+    @property
+    def is_this_year(self):
+        """Return whether the block occurs after September 1st
+           of this school year."""
+        now = datetime.now().date()
+        ann = self.date
+        if now.month < 9:
+            return ((ann.year == now.year and ann.month < 9) or
+                    (ann.year == now.year - 1 and ann.month >= 9))
+        else:
+            return (ann.year == now.year and ann.month >= 9)
 
     def __unicode__(self):
         formatted_date = formats.date_format(self.date, "EIGHTH_BLOCK_DATE_FORMAT")
@@ -504,7 +594,8 @@ class EighthScheduledActivityManager(Manager):
         sched_acts = (EighthScheduledActivity.objects
                                              .exclude(activity__deleted=True)
                                              .exclude(cancelled=True)
-                                             .filter(sponsoring_filter))
+                                             .filter(sponsoring_filter)
+                                             .distinct())
         return sched_acts
 
 
@@ -684,28 +775,61 @@ class EighthScheduledActivity(AbstractBaseEighthModel):
             if member.dn and member.can_view_eighth:
                 show = member.can_view_eighth
 
-            if user and user.is_eighth_admin:
+            if not show and user and user.is_eighth_admin:
                 show = True
-            if member == user:
+            if not show and user and user.is_teacher:
                 show = True
+            if not show and member == user:
+                show = True
+
             if show:
                 members.append(member)
 
-        return members
+        return sorted(members, key=lambda u: (u.last_name, u.first_name))
+
+    def get_viewable_members_serializer(self, request):
+        """Get a QuerySet of User objects of students in the activity.
+        Needed for the EighthScheduledActivitySerializer.
+
+        Returns: QuerySet
+        """
+        ids = []
+        user = request.user
+        for member in self.members.all():
+            show = False
+            if member.dn and member.can_view_eighth:
+                show = member.can_view_eighth
+
+            if not show and user and user.is_eighth_admin:
+                show = True
+            if not show and user and user.is_teacher:
+                show = True
+            if not show and member == user:
+                show = True
+
+            if show:
+                ids.append(member.id)
+
+        return User.objects.filter(id__in=ids)
 
     def get_hidden_members(self, user=None):
-        """Get the number of members that you do not have permission to view.
+        """Get the members that you do not have permission to view.
 
-        Returns: Number of members hidden based on preferences
+        Returns: List of members hidden based on their permission preferences
         """
         hidden_members = []
         for member in self.members.all():
             show = False
-            show = member.can_view_eighth
-            if user and user.is_eighth_admin:
+            if member.dn and member.can_view_eighth:
+                show = member.can_view_eighth
+
+            if not show and user and user.is_eighth_admin:
                 show = True
-            if member == user:
+            if not show and user and user.is_teacher:
                 show = True
+            if not show and member == user:
+                show = True
+
             if not show:
                 hidden_members.append(member)
 
@@ -725,7 +849,7 @@ class EighthScheduledActivity(AbstractBaseEighthModel):
         if not self.activity.both_blocks:
             return None
 
-        if not self.block.block_letter in ["A", "B"]:
+        if self.block.block_letter not in ["A", "B"]:
             # both_blocks is not currently implemented for blocks other than A and B
             return None
 
@@ -778,22 +902,20 @@ class EighthScheduledActivity(AbstractBaseEighthModel):
                     exception.SignupForbidden = True
                     raise exception
 
-            # Check if the block has been locked
-            for sched_act in all_sched_act:
-                if sched_act.block.locked:
-                    exception.BlockLocked = True
-
-            # Check if the scheduled activity has been cancelled
-            for sched_act in all_sched_act:
-                if sched_act.cancelled:
-                    exception.ScheduledActivityCancelled = True
-
             # Check if the activity has been deleted
             if self.activity.deleted:
                 exception.ActivityDeleted = True
 
-            # Check if the activity is full
             for sched_act in all_sched_act:
+                # Check if the block has been locked
+                if sched_act.block.locked:
+                    exception.BlockLocked = True
+
+                # Check if the scheduled activity has been cancelled
+                if sched_act.cancelled:
+                    exception.ScheduledActivityCancelled = True
+
+                # Check if the activity is full
                 if sched_act.is_full():
                     exception.ActivityFull = True
 
@@ -835,7 +957,7 @@ class EighthScheduledActivity(AbstractBaseEighthModel):
                 if self.activity.id not in acts:
                     exception.Restricted = True
 
-        success_message = "Successfully signed up for activity. "
+        success_message = "Successfully signed up for activity."
 
         """
         final_remove_signups = []
@@ -923,8 +1045,6 @@ class EighthScheduledActivity(AbstractBaseEighthModel):
                                             scheduled_activity=self,
                                             after_deadline=after_deadline)
         else:
-
-
             existing_signups = EighthSignup.objects.filter(
                 user=user,
                 scheduled_activity__block__in=all_blocks
@@ -968,17 +1088,19 @@ class EighthScheduledActivity(AbstractBaseEighthModel):
         return success_message
 
     def cancel(self):
-        """Cancel an EighthScheduledActivity, and update the rooms and sponsors
-        to be "CANCELLED."
+        """Cancel an EighthScheduledActivity.
+        This does nothing besides set the cancelled flag and save the object.
         """
-        #super(EighthScheduledActivity, self).save(*args, **kwargs)
+        # super(EighthScheduledActivity, self).save(*args, **kwargs)
 
         logger.debug("Running cancel hooks: {}".format(self))
 
         if not self.cancelled:
             logger.debug("Cancelling {}".format(self))
             self.cancelled = True
-
+        self.save()
+        # NOT USED. Was broken anyway.
+        """
         cancelled_room = EighthRoom.objects.get_or_create(name="CANCELLED", capacity=0)[0]
         cancelled_sponsor = EighthSponsor.objects.get_or_create(first_name="", last_name="CANCELLED")[0]
         if cancelled_room not in list(self.rooms.all()):
@@ -990,18 +1112,19 @@ class EighthScheduledActivity(AbstractBaseEighthModel):
             self.sponsors.add(cancelled_sponsor)
 
         self.save()
-
-
-    def uncancel(self):
-        """Uncancel an EighthScheduledActivity, by removing the "CANCELLED" rooms
-        and sponsors.
         """
 
-        logger.debug("Running uncancel hooks: {}".format(self))
+    def uncancel(self):
+        """Uncancel an EighthScheduledActivity.
+        This does nothing besides unset the cancelled flag and save the object.
+        """
+
         if self.cancelled:
             logger.debug("Uncancelling {}".format(self))
             self.cancelled = False
-
+        self.save()
+        # NOT USED. Was broken anyway.
+        """
         cancelled_room = EighthRoom.objects.get_or_create(name="CANCELLED", capacity=0)[0]
         cancelled_sponsor = EighthSponsor.objects.get_or_create(first_name="", last_name="CANCELLED")[0]
         if cancelled_room in list(self.rooms.all()):
@@ -1011,10 +1134,10 @@ class EighthScheduledActivity(AbstractBaseEighthModel):
             self.sponsors.filter(id=cancelled_sponsor.id).delete()
 
         self.save()
+        """
 
     def save(self, *args, **kwargs):
         super(EighthScheduledActivity, self).save(*args, **kwargs)
-
 
     class Meta:
         unique_together = (("block", "activity"),)
@@ -1023,6 +1146,15 @@ class EighthScheduledActivity(AbstractBaseEighthModel):
     def __unicode__(self):
         cancelled_str = " (Cancelled)" if self.cancelled else ""
         return "{} on {}{}".format(self.activity, self.block, cancelled_str)
+
+
+class EighthSignupManager(Manager):
+    """Model manager for EighthSignup."""
+
+    def get_absences(self):
+        return (EighthSignup.objects
+                            .filter(was_absent=True,
+                                    scheduled_activity__attendance_taken=True))
 
 
 class EighthSignup(AbstractBaseEighthModel):
@@ -1050,8 +1182,12 @@ class EighthSignup(AbstractBaseEighthModel):
             Whether the student was absent.
         absence_acknowledged
             Whether the student has dismissed the absence notification.
+        absence_emailed
+            Whether the student has been emailed about the absence.
 
     """
+    objects = EighthSignupManager()
+
     time = models.DateTimeField(auto_now=True)
 
     user = models.ForeignKey(User, null=False)
@@ -1070,6 +1206,7 @@ class EighthSignup(AbstractBaseEighthModel):
     pass_accepted = models.BooleanField(default=False, blank=True)
     was_absent = models.BooleanField(default=False, blank=True)
     absence_acknowledged = models.BooleanField(default=False, blank=True)
+    absence_emailed = models.BooleanField(default=False, blank=True)
 
     def validate_unique(self, *args, **kwargs):
         """Checked whether more than one EighthSignup exists for a User
@@ -1133,6 +1270,9 @@ class EighthSignup(AbstractBaseEighthModel):
         self.pass_accepted = True
         self.save()
 
+    def in_clear_absence_period(self):
+        """Is the block for this signup in the clear absence period?"""
+        return self.scheduled_activity.block.in_clear_absence_period()
 
     def __unicode__(self):
         return "{}: {}".format(self.user,

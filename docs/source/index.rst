@@ -26,6 +26,7 @@ Setup
 
 - :doc:`Setting up the server<setup/server>`
 - :doc:`Setting up a the Vagrant development environment<setup/vagrant>`
+- :doc:`Setting up fixtures from Iodine<setup/fixtures>`
 
 
 Architecture
@@ -42,12 +43,19 @@ Developing for Intranet
 - :doc:`Workflow<developing/workflow>`
 - :doc:`Coding Style Guide<developing/styleguide>`
 
+Using Intranet as a Developer
+-----------------------------
+- `API Root <https://ion.tjhsst.edu/api/>`_
+- `API Demo <https://www.tjhsst.edu/~2016jwoglom/ion-api-demo.html>`_
 
 Source Code Documentation
 -------------------------
-Demo Django docs :django:setting:`ROOT_URLCONF` setting.
+.. code-block:: rst
 
-and python docs :class:`threading.Thread`
+  Example documentation for Django settings :django:setting:`ROOT_URLCONF`
+  and python objects :class:`threading.Thread`
+
+More details can be found at `Sphinx Documentation <http://sphinx-doc.org/markup/index.html>`_
 
 Go to the :doc:`Source Code Documentation<sourcedoc/intranet>`
 

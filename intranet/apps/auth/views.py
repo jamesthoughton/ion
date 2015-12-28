@@ -4,21 +4,21 @@ from __future__ import unicode_literals
 import os
 import random
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from intranet import settings
 from ..dashboard.views import dashboard_view
 from ..schedule.views import schedule_context
 from .forms import AuthenticateForm
 from django.shortcuts import render, redirect
 from django.contrib.auth import login, logout
-from django.core import exceptions
 from django.templatetags.static import static
 from django.views.generic.base import View
 from django.utils.decorators import method_decorator
-from django.views.decorators.debug import sensitive_variables, sensitive_post_parameters
+from django.views.decorators.debug import sensitive_post_parameters
 
 logger = logging.getLogger(__name__)
 auth_logger = logging.getLogger("intranet_auth")
+
 
 def log_auth(request, success):
     if "HTTP_X_FORWARDED_FOR" in request.META:
@@ -26,7 +26,7 @@ def log_auth(request, success):
     else:
         ip = request.META.get("REMOTE_ADDR", "")
 
-    if type(ip) == set:
+    if isinstance(ip, set):
         ip = ip[0]
 
     username = request.POST.get("username", "unknown")
@@ -42,6 +42,7 @@ def log_auth(request, success):
 
     auth_logger.info(log_line)
 
+
 def get_bg_pattern():
     """
     Choose a background pattern image.
@@ -53,7 +54,7 @@ def get_bg_pattern():
         "confectionary.png",
         "contemporary_china.png",
         "crossword.png",
-        #"fresh_snow.png",
+        # "fresh_snow.png",
         "greyzz.png",
         "light_grey.png",
         "p6.png",
@@ -62,11 +63,26 @@ def get_bg_pattern():
         "pw_pattern.png",
         "sos.png",
         "squairy_light.png",
-        #"squared_metal.png"
+        # "squared_metal.png"
     ]
     file_path = "img/patterns/"
 
     return static(file_path + random.choice(files))
+
+
+def get_login_theme():
+    """
+    Load a custom login theme (e.x. snow)
+    """
+    today = datetime.now().date()
+    if today.month == 12 or today.month == 1:
+        # Snow
+        return {
+            "js": "themes/snow/snow.js",
+            "css": "themes/snow/snow.css"
+        }
+    return {}
+
 
 @sensitive_post_parameters("password")
 def index_view(request, auth_form=None, force_login=False, added_context=None):
@@ -80,7 +96,8 @@ def index_view(request, auth_form=None, force_login=False, added_context=None):
             "auth_form": auth_form,
             "request": request,
             "git_info": settings.GIT,
-            "bg_pattern": get_bg_pattern()
+            "bg_pattern": get_bg_pattern(),
+            "theme": get_login_theme()
         }
         schedule = schedule_context(request)
         data.update(schedule)
@@ -99,7 +116,7 @@ class login_view(View):
 
         """Before September 1st, do not allow Class of [year+4] to log in."""
         if (request.POST.get("username", "").startswith(str(date.today().year + 4)) and
-            date.today().month < 9):
+                date.today().month < 9):
             return index_view(request, added_context={
                 "auth_message": "Your account is not yet active for use with this application."
             })
@@ -130,14 +147,13 @@ class login_view(View):
                     "auth_message": "Your account is disabled."
                 })
 
-
             if request.user.startpage == "eighth":
                 """Default to eighth admin view (for eighthoffice)."""
                 default_next_page = "eighth_admin_dashboard"
 
-            if request.user.is_eighthoffice:
-                """Eighthoffice's session should (almost) never expire."""
-                request.session.set_expiry(datetime.now() + timedelta(days=30))
+            # if request.user.is_eighthoffice:
+            #    """Eighthoffice's session should (almost) never expire."""
+            #    request.session.set_expiry(timezone.now() + timedelta(days=30))
 
             if not request.user.first_login:
                 logger.info("First login")
@@ -148,7 +164,7 @@ class login_view(View):
                 if request.user.is_student or request.user.is_teacher:
                     default_next_page = "welcome"
                 else:
-                    pass # exclude eighth office/special accounts
+                    pass  # exclude eighth office/special accounts
 
             next_page = request.GET.get("next", default_next_page)
             return redirect(next_page)
@@ -162,9 +178,11 @@ class login_view(View):
         """Redirect to the login page."""
         return index_view(request, force_login=True)
 
+
 def about_view(request):
     """Show an about page with credits."""
     return render(request, "auth/about.html")
+
 
 def do_logout(request):
     """Clear the Kerberos cache and logout."""
@@ -176,6 +194,7 @@ def do_logout(request):
 
     logger.info("Destroying kerberos cache and logging out")
     logout(request)
+
 
 def logout_view(request):
     """Clear the Kerberos cache and logout."""

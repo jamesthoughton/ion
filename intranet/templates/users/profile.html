@@ -90,12 +90,15 @@
             {% endif %}
 
 
-            {% if request.user.is_eighth_admin %}
+            {% if request.user.is_eighth_admin or request.user.is_teacher %}
                 <center>
-                    <br /><br /><br />
-                    <a href="{% url 'eighth_profile' profile_user.id %}" class="button" style="margin-left: 0px">View Eighth Profile</a>
                     <br />
-                    <a href="/profile/{{ profile_user.id }}?clear_cache=1&full=1" class="button small-button" title="Clear cached information for this user.">Clear Cache</a> &nbsp;
+                    <a href="{% url 'eighth_profile' profile_user.id %}" class="button" style="margin-left: 0px">View Eighth Profile</a>
+                    {% if request.user.is_eighth_admin %}
+                        <br />
+                        <a href="/profile/{{ profile_user.id }}?clear_cache=1&full=1" class="button small-button" title="Clear cached information for this user.">Clear Cache</a> &nbsp;
+                    {% endif %}
+                    <br />
                 </center>
             {% endif %}
         </div>
@@ -121,6 +124,9 @@
                             Staff
                         {% endif %}
                         </h3>
+                        {% if profile_user.is_eighth_admin %}
+                            <b><i class="fa fa-flask"></i> This user is an Intranet administrator.</b>
+                        {% endif %}
                     </div>
                     <table class="user-info-contact">
                         {% if profile_user.display_name %}
@@ -133,10 +139,18 @@
                             <th>Username</th>
                             <td>{{ profile_user.ion_username }}</td>
                         </tr>
-                        {% if request.user.is_teacher %}
+                        {% if request.user.is_teacher and profile_user.student_id %}
                             <tr>
                                 <th>Student ID</th>
                                 <td>{{ profile_user.student_id }}</td>
+                            </tr>
+                        {% endif %}
+                        {% if request.user.is_teacher or request.user.is_eighth_admin %}
+                            <tr>
+                                <th>TJ Email</th>
+                                <td><a href="mailto:{{ profile_user.tj_email }}">
+                                    {{ profile_user.tj_email }}
+                                </a></td>
                             </tr>
                         {% endif %}
                         {% if profile_user.birthday %}

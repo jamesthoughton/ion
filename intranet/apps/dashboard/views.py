@@ -11,6 +11,7 @@ from intranet import settings
 from ..users.models import User
 from ..schedule.views import schedule_context
 from ..announcements.models import Announcement, AnnouncementRequest
+from ..seniors.models import Senior
 from ..eighth.models import (
     EighthBlock, EighthSignup, EighthScheduledActivity
 )
@@ -18,7 +19,7 @@ from ..eighth.models import (
 logger = logging.getLogger(__name__)
 
 
-def gen_schedule(user, num_blocks=6):
+def gen_schedule(user, num_blocks=6, surrounding_blocks=None):
     """Generate a list of information about a block and a student's
     current activity signup.
 
@@ -30,59 +31,68 @@ def gen_schedule(user, num_blocks=6):
     no_signup_today = None
     schedule = []
 
-    block = EighthBlock.objects.get_first_upcoming_block()
-    if block is None:
-        schedule = None
-    else:
-        surrounding_blocks = [block] + list(block.next_blocks()[:num_blocks-1])
-        # Use select_related to reduce query count
-        signups = EighthSignup.objects.filter(user=user).select_related("scheduled_activity", "scheduled_activity__block", "scheduled_activity__activity")
-        block_signup_map = {s.scheduled_activity.block.id: s.scheduled_activity for s in signups}
+    if surrounding_blocks is None:
+        surrounding_blocks = EighthBlock.objects.get_upcoming_blocks(num_blocks)
 
-        for b in surrounding_blocks:
-            current_sched_act = block_signup_map.get(b.id, None)
-            if current_sched_act:
-                current_signup = current_sched_act.title_with_flags
-                current_signup_cancelled = current_sched_act.cancelled
-            else:
-                current_signup = None
-                current_signup_cancelled = False
+    if len(surrounding_blocks) == 0:
+        return None, False
 
-            # warning flag (red block text and signup link) if no signup today
-            # cancelled flag (red activity text) if cancelled
-            flags = "locked" if b.locked else "open"
-            blk_today = b.is_today()
-            if (blk_today and not current_signup):
-                flags += " warning"
-            if current_signup_cancelled:
-                flags += " cancelled"
+    # Use select_related to reduce query count
+    signups = (EighthSignup.objects.filter(user=user,
+                                           scheduled_activity__block__in=surrounding_blocks)
+               .select_related("scheduled_activity",
+                               "scheduled_activity__block",
+                               "scheduled_activity__activity")
+               .nocache())
+    block_signup_map = {s.scheduled_activity.block.id: s.scheduled_activity for s in signups}
 
-            if current_signup_cancelled:
-                # don't duplicate this info; already caught
-                current_signup = current_signup.replace(" (Cancelled)", "")
+    for b in surrounding_blocks:
+        current_sched_act = block_signup_map.get(b.id, None)
+        if current_sched_act:
+            current_signup = current_sched_act.title_with_flags
+            current_signup_cancelled = current_sched_act.cancelled
+            current_signup_sticky = current_sched_act.activity.sticky
+        else:
+            current_signup = None
+            current_signup_cancelled = False
+            current_signup_sticky = False
 
-            info = {
-                "id": b.id,
-                "block": b,
-                "block_letter": b.block_letter,
-                "current_signup": current_signup,
-                "current_signup_cancelled": current_signup_cancelled,
-                "locked": b.locked,
-                "date": b.date,
-                "flags": flags,
-                "is_today": blk_today,
-                "signup_time": b.signup_time,
-                "signup_time_future": b.signup_time_future
-            }
-            schedule.append(info)
+        # warning flag (red block text and signup link) if no signup today
+        # cancelled flag (red activity text) if cancelled
+        flags = "locked" if b.locked else "open"
+        blk_today = b.is_today()
+        if (blk_today and not current_signup):
+            flags += " warning"
+        if current_signup_cancelled:
+            flags += " cancelled warning"
 
-            if blk_today and not current_signup:
-                no_signup_today = True
+        if current_signup_cancelled:
+            # don't duplicate this info; already caught
+            current_signup = current_signup.replace(" (Cancelled)", "")
+
+        info = {
+            "id": b.id,
+            "block": b,
+            "block_letter": b.block_letter,
+            "current_signup": current_signup,
+            "current_signup_cancelled": current_signup_cancelled,
+            "current_signup_sticky": current_signup_sticky,
+            "locked": b.locked,
+            "date": b.date,
+            "flags": flags,
+            "is_today": blk_today,
+            "signup_time": b.signup_time,
+            "signup_time_future": b.signup_time_future
+        }
+        schedule.append(info)
+
+        if blk_today and not current_signup:
+            no_signup_today = True
 
     return schedule, no_signup_today
 
 
-def gen_sponsor_schedule(user, num_blocks=6):
+def gen_sponsor_schedule(user, sponsor=None, num_blocks=6, surrounding_blocks=None):
     """Return a list of :class:`EighthScheduledActivity`\s in which the
     given user is sponsoring.
 
@@ -94,19 +104,27 @@ def gen_sponsor_schedule(user, num_blocks=6):
     no_attendance_today = None
     acts = []
 
-    sponsor = user.get_eighth_sponsor()
+    if sponsor is None:
+        sponsor = user.get_eighth_sponsor()
 
-    block = EighthBlock.objects.get_first_upcoming_block()
-    if block is None:
-        return [], False
+    if surrounding_blocks is None:
+        surrounding_blocks = EighthBlock.objects.get_upcoming_blocks(num_blocks).nocache()
 
     activities_sponsoring = (EighthScheduledActivity.objects.for_sponsor(sponsor)
-                                                            .filter(block__date__gte=block.date))
+                                                            .select_related("block")
+                                                            .filter(block__in=surrounding_blocks)
+                                                            .nocache())
+    sponsoring_block_map = {}
+    for sa in activities_sponsoring:
+        bid = sa.block.id
+        if bid in sponsoring_block_map:
+            sponsoring_block_map[bid] += [sa]
+        else:
+            sponsoring_block_map[bid] = [sa]
 
-    surrounding_blocks = [block] + list(block.next_blocks()[:num_blocks-1])
     for b in surrounding_blocks:
         num_added = 0
-        sponsored_for_block = activities_sponsoring.filter(block=b)
+        sponsored_for_block = sponsoring_block_map.get(b.id, [])
 
         for schact in sponsored_for_block:
             acts.append(schact)
@@ -131,7 +149,6 @@ def gen_sponsor_schedule(user, num_blocks=6):
 def find_birthdays(request):
     """Return information on user birthdays."""
     today = datetime.now().date()
-    actual_today = datetime.now().date()
     custom = False
     yr_inc = 0
     if "birthday_month" in request.GET and "birthday_day" in request.GET:
@@ -145,8 +162,12 @@ def find_birthdays(request):
                 yr += 1
                 yr_inc = 1
 
+            real_today = today
             today = datetime(yr, mon, day).date()
-            custom = True
+            if today:
+                custom = True
+            else:
+                today = real_today
         except Exception:
             pass
 
@@ -162,36 +183,39 @@ def find_birthdays(request):
     else:
         logger.debug("Loading and caching birthday info for {}".format(today))
         tomorrow = today + timedelta(days=1)
-
-        data = {
-            "custom": custom,
-            "today": {
-                "date": today,
-                "users": [{
-                    "id": u.id,
-                    "full_name": u.full_name,
-                    "grade": {
-                        "name": u.grade.name
-                    },
-                    "age": (u.age + yr_inc) if u.age is not None else -1
-                } for u in User.objects.users_with_birthday(today.month, today.day)],
-                "inc": 0
-            },
-            "tomorrow": {
-                "date": tomorrow,
-                "users": [{
-                    "id": u.id,
-                    "full_name": u.full_name,
-                    "grade": {
-                        "name": u.grade.name
-                    },
-                    "age": u.age
-                } for u in User.objects.users_with_birthday(tomorrow.month, tomorrow.day)],
-                "inc": 1
+        try:
+            data = {
+                "custom": custom,
+                "today": {
+                    "date": today,
+                    "users": [{
+                        "id": u.id,
+                        "full_name": u.full_name,
+                        "grade": {
+                            "name": u.grade.name
+                        },
+                        "age": (u.age + yr_inc) if u.age is not None else -1
+                    } if u else {} for u in User.objects.users_with_birthday(today.month, today.day)],
+                    "inc": 0
+                },
+                "tomorrow": {
+                    "date": tomorrow,
+                    "users": [{
+                        "id": u.id,
+                        "full_name": u.full_name,
+                        "grade": {
+                            "name": u.grade.name
+                        },
+                        "age": (u.age - 1)
+                    } for u in User.objects.users_with_birthday(tomorrow.month, tomorrow.day)],
+                    "inc": 1
+                }
             }
-        }
-        cache.set(key, data, timeout=60 * 60 * 24)
-        return data
+        except AttributeError:
+            return None
+        else:
+            cache.set(key, data, timeout=60 * 60 * 6)
+            return data
 
 
 @login_required
@@ -213,7 +237,7 @@ def dashboard_view(request, show_widgets=True, show_expired=False):
         # Only show announcements for groups that the user is enrolled in.
         if show_expired:
             announcements = (Announcement.objects
-                                     .visible_to_user(user))
+                             .visible_to_user(user))
         else:
             announcements = (Announcement.objects
                                          .visible_to_user(user)
@@ -228,7 +252,7 @@ def dashboard_view(request, show_widgets=True, show_expired=False):
     else:
         start_num = 0
 
-    display_num = 15
+    display_num = 10
     end_num = start_num + display_num
     more_announcements = ((announcements.count() - start_num) > display_num)
     try:
@@ -238,15 +262,15 @@ def dashboard_view(request, show_widgets=True, show_expired=False):
     else:
         announcements = announcements_sorted
 
-    announcements = announcements.prefetch_related("groups", "user", "event")
+    announcements = announcements.select_related("user").prefetch_related("groups", "event")
 
     user_hidden_announcements = (Announcement.objects.hidden_announcements(user)
-                                                     .values_list("id", flat=True))
+                                                     .values_list("id", flat=True)).nocache()
 
     is_student = user.is_student
     is_teacher = user.is_teacher
-    is_senior = (user.grade.number == 12) if user.grade and user.grade.number else False
-    eighth_sponsor = user.is_eighth_sponsor
+    is_senior = user.is_senior
+    eighth_sponsor = user.get_eighth_sponsor()
 
     if show_widgets:
         dashboard_title = "Dashboard"
@@ -255,6 +279,8 @@ def dashboard_view(request, show_widgets=True, show_expired=False):
         dashboard_title = dashboard_header = "Announcement Archive"
     else:
         dashboard_title = dashboard_header = "Announcements"
+
+    num_senior_destinations = Senior.objects.filled().count()
 
     context = {
         "announcements": announcements,
@@ -271,13 +297,17 @@ def dashboard_view(request, show_widgets=True, show_expired=False):
         "dashboard_header": dashboard_header,
         "is_student": is_student,
         "is_teacher": is_teacher,
-        "is_senior": is_senior
+        "is_senior": is_senior,
+        "num_senior_destinations": num_senior_destinations
     }
 
-
     if show_widgets:
+        if is_student or eighth_sponsor:
+            num_blocks = 6
+            surrounding_blocks = EighthBlock.objects.get_upcoming_blocks(num_blocks)
+
         if is_student:
-            schedule, no_signup_today = gen_schedule(user)
+            schedule, no_signup_today = gen_schedule(user, num_blocks, surrounding_blocks)
             context.update({
                 "schedule": schedule,
                 "no_signup_today": no_signup_today,
@@ -286,7 +316,7 @@ def dashboard_view(request, show_widgets=True, show_expired=False):
             })
 
         if eighth_sponsor:
-            sponsor_schedule, no_attendance_today = gen_sponsor_schedule(user)
+            sponsor_schedule, no_attendance_today = gen_sponsor_schedule(user, eighth_sponsor, num_blocks, surrounding_blocks)
             context.update({
                 "sponsor_schedule": sponsor_schedule,
                 "no_attendance_today": no_attendance_today

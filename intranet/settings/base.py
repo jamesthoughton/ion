@@ -5,8 +5,8 @@ import os
 import subprocess
 from .secret import *
 
-PRODUCTION = os.getenv("PRODUCTION", "") == "TRUE"
-TRAVIS = os.getenv("TRAVIS", "") == "true"
+PRODUCTION = os.getenv("PRODUCTION") == "TRUE"
+TRAVIS = os.getenv("TRAVIS") == "true"
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -20,20 +20,30 @@ EMAIL_HOST = "mail.tjhsst.edu"
 EMAIL_PORT = 25
 EMAIL_USE_TLS = False
 EMAIL_SUBJECT_PREFIX = "[Ion] "
+EMAIL_ANNOUNCEMENTS = True
 
 EMAIL_FROM = "ion-noreply@tjhsst.edu"
 
 ADMINS = (
-    ("Ethan Lowman", "2015elowman+ion@tjhsst.edu"),
     ("James Woglom", "2016jwoglom+ion@tjhsst.edu"),
     ("Samuel Damashek", "2017sdamashe+ion@tjhsst.edu"),
+    ("Andrew Hamilton", "ahamilto+ion@tjhsst.edu")
 )
 
-FEEDBACK_EMAIL = "intranet+feedback@lists.tjhsst.edu"
+FEEDBACK_EMAIL = "intranet@lists.tjhsst.edu"
 APPROVAL_EMAIL = "intranet-approval@lists.tjhsst.edu"
 
-FILES_MAX_UPLOAD_SIZE = 200*1024*1024
-FILES_MAX_DOWNLOAD_SIZE = 200*1024*1024
+FILE_UPLOAD_HANDLERS = [
+    "django.core.files.uploadhandler.MemoryFileUploadHandler",
+    "django.core.files.uploadhandler.TemporaryFileUploadHandler"
+]
+
+PRINTING_PAGES_LIMIT = 15
+
+FILES_MAX_UPLOAD_SIZE = 200 * 1024 * 1024
+FILES_MAX_DOWNLOAD_SIZE = 200 * 1024 * 1024
+
+CSRF_FAILURE_VIEW = "intranet.apps.error.views.handle_csrf_view"
 
 MANAGERS = ADMINS
 
@@ -102,8 +112,8 @@ STATICFILES_FINDERS = (
 )
 
 AUTHENTICATION_BACKENDS = (
-    "intranet.apps.auth.backends.KerberosAuthenticationBackend",
     "intranet.apps.auth.backends.MasterPasswordAuthenticationBackend",
+    "intranet.apps.auth.backends.KerberosAuthenticationBackend",
 )
 
 AUTH_USER_MODEL = "users.User"
@@ -130,20 +140,22 @@ TEMPLATES = [
 ]
 
 MIDDLEWARE_CLASSES = [
-    "intranet.middleware.ldap_db.CheckLDAPBindMiddleware",
     "intranet.middleware.url_slashes.FixSlashes",
     "django.middleware.common.CommonMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "maintenancemode.middleware.MaintenanceModeMiddleware",
     "intranet.middleware.environment.KerberosCacheMiddleware",
     "intranet.middleware.threadlocals.ThreadLocalsMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "intranet.middleware.ajax.AjaxNotAuthenticatedMiddleWare",
     "intranet.middleware.templates.AdminSelectizeLoadingIndicatorMiddleware",
     "intranet.middleware.access_log.AccessLogMiddleWare",
-    "intranet.middleware.traceback.UserTracebackMiddleware"
+    "corsheaders.middleware.CorsMiddleware",
+    "intranet.middleware.traceback.UserTracebackMiddleware",
+    # "intranet.middleware.profiler.ProfileMiddleware",
+    "intranet.middleware.ldap_db.CheckLDAPBindMiddleware",
+    "maintenancemode.middleware.MaintenanceModeMiddleware",
 ]
 
 ROOT_URLCONF = "intranet.urls"
@@ -165,7 +177,8 @@ SESSION_REDIS_PREFIX = VIRTUAL_ENV + ":session"
 SESSION_COOKIE_AGE = 60 * 60 * 2
 SESSION_SAVE_EVERY_REQUEST = True
 
-months = 60 * 60 * 24 * 30
+days = 60 * 60 * 24
+months = days * 30
 CACHE_AGE = {
     "dn_id_mapping": 12 * months,
     "user_attribute": 2 * months,
@@ -174,8 +187,11 @@ CACHE_AGE = {
     "user_grade": 10 * months,
     "class_teacher": 6 * months,
     "class_attribute": 6 * months,
-    "ldap_permissions": int(0.5 * months),
+    "ldap_permissions": 1 * days,
+    "bell_schedule": 7 * days,
+    "users_list": 1 * days,
 }
+del days
 del months
 
 
@@ -190,12 +206,41 @@ CACHES = {
     },
 }
 
+if not TRAVIS:
+    CACHEOPS_REDIS = {
+        "host": "127.0.0.1",
+        "port": 6379,
+        "db": 1,
+        "socket_timeout": 1
+    }
+
+    CACHEOPS_DEGRADE_ON_FAILURE = True
+
+    CACHEOPS_DEFAULTS = {
+        "ops": "all",
+        "cache_on_save": True,
+        "timeout": 24 * 60 * 60
+    }
+
+    CACHEOPS = {
+        "eighth.*": {
+            "timeout": 1  # 60 * 60
+        },
+        "announcements.*": {},
+        "events.*": {},
+        "groups.*": {},
+        "users.*": {},
+        "auth.*": {}
+    }
+
+
 # LDAP configuration
 AD_REALM = "LOCAL.TJHSST.EDU"  # Active Directory Realm
 CSL_REALM = "CSL.TJHSST.EDU"  # CSL Realm
 HOST = "ion.tjhsst.edu"
 LDAP_REALM = "CSL.TJHSST.EDU"
 LDAP_SERVER = "ldap://iodine-ldap.tjhsst.edu"
+KINIT_TIMEOUT = 15  # seconds for pexpect
 
 AUTHUSER_DN = "cn=authuser,dc=tjhsst,dc=edu"
 # AUTHUSER_PASSWORD
@@ -213,10 +258,6 @@ LDAP_OBJECT_CLASSES = {
 }
 
 FCPS_STUDENT_ID_LENGTH = 7
-
-ELASTICSEARCH_INDEX = "ion"
-ELASTICSEARCH_USER_DOC_TYPE = "user"
-
 
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
@@ -245,6 +286,7 @@ INSTALLED_APPS = (
     "django.contrib.sites",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django_extensions",
     "rest_framework",
     "maintenancemode",
     "intranet.apps",
@@ -257,13 +299,18 @@ INSTALLED_APPS = (
     "intranet.apps.search",
     "intranet.apps.schedule",
     "intranet.apps.notifications",
+    "intranet.apps.feedback",
     "intranet.apps.users",
     "intranet.apps.preferences",
     "intranet.apps.files",
+    "intranet.apps.printing",
     "intranet.apps.polls",
+    "intranet.apps.signage",
+    "intranet.apps.seniors",
     "intranet.middleware.environment",
     "widget_tweaks",
-    "django_extensions",
+    "corsheaders",
+    "cacheops"
 )
 
 EIGHTH_BLOCK_DATE_FORMAT = "D, N j, Y"
@@ -273,19 +320,15 @@ EIGHTH_BLOCK_DATE_FORMAT = "D, N j, Y"
 # the site admins on every HTTP 500 error when DEBUG=False.
 # See http://docs.djangoproject.com/en/dev/topics/logging for
 # more details on how to customize your logging configuration.
-LOG_LEVEL = "DEBUG" if not PRODUCTION else "INFO"
+LOG_LEVEL = "INFO" if PRODUCTION else "DEBUG"
 _log_levels = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
-if os.getenv("LOG_LEVEL", None) in _log_levels:
+if os.getenv("LOG_LEVEL") in _log_levels:
     LOG_LEVEL = os.environ["LOG_LEVEL"]
 
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": True,
     "formatters": {
-        # "verbose": {
-        #     "format": "%(levelname)s %(asctime)s %(module)s"
-        #               "%(process)d %(thread)d %(message)s"
-        # },
         "simple": {
             "format": "%(levelname)s: %(message)s"
         },
@@ -302,7 +345,7 @@ LOGGING = {
         "mail_admins": {
             "level": "ERROR",
             "filters": ["require_debug_false"],
-            "class": "django.utils.log.AdminEmailHandler",
+            "class": "intranet.middleware.email_handler.AdminEmailHandler",
             "include_html": True
         },
         "console": {
@@ -330,16 +373,23 @@ LOGGING = {
             "formatter": "access",
             "filename": "/var/log/ion/app_auth.log",
             "delay": True
-        }
+        },
+        "error_log": {
+            "level": "ERROR",
+            "filters": ["require_debug_false"],
+            "class": "logging.FileHandler",
+            "delay": True,
+            "filename": "/var/log/ion/app_error.log"
+        },
     },
     "loggers": {
         "django.request": {
-            "handlers": ["mail_admins"],
+            "handlers": ["mail_admins"] + (["error_log"] if (PRODUCTION and not TRAVIS) else []),
             "level": "ERROR",
             "propagate": True,
         },
         "intranet": {
-            "handlers": ["console", "mail_admins"],
+            "handlers": ["console", "mail_admins"] + (["error_log"] if (PRODUCTION and not TRAVIS) else []),
             "level": LOG_LEVEL,
             "propagate": True,
         },
@@ -356,6 +406,7 @@ LOGGING = {
     }
 }
 
+# The debug toolbar is always loaded, unless you manually override SHOW_DEBUG_TOOLBAR
 SHOW_DEBUG_TOOLBAR = os.getenv("SHOW_DEBUG_TOOLBAR", "YES") == "YES"
 
 if SHOW_DEBUG_TOOLBAR:
@@ -383,42 +434,69 @@ if SHOW_DEBUG_TOOLBAR:
         "DISABLE_PANELS": [panel for panel, enabled in _panels if not enabled]
     }
 
-
     DEBUG_TOOLBAR_PANELS = [t[0] for t in _panels]
 
-    MIDDLEWARE_CLASSES = MIDDLEWARE_CLASSES[:-1] + [
+    MIDDLEWARE_CLASSES.extend([
         "intranet.middleware.templates.StripNewlinesMiddleware",
-    ] + MIDDLEWARE_CLASSES[-1:] + [
         "debug_toolbar.middleware.DebugToolbarMiddleware",
-    ]
+    ])
 
     INSTALLED_APPS += (
         "debug_toolbar",
         "debug_toolbar_line_profiler",
     )
 
+    def debug_toolbar_callback(request):
+        """Show the debug toolbar to those with the Django staff permission, excluding
+           the Eighth Period office.
+        """
+        if request.is_ajax():
+            return False
+
+        if (hasattr(request, 'user') and
+                request.user.is_authenticated()):
+            return (request.user.is_staff and
+                    not request.user.id == 9999 and
+                    "debug" in request.GET)
+
+        return False
+
+    # Only show debug toolbar when requested if in production.
+    if PRODUCTION:
+        DEBUG_TOOLBAR_CONFIG.update({
+            "SHOW_TOOLBAR_CALLBACK": "intranet.settings.debug_toolbar_callback"
+        })
+
 
 MAINTENANCE_MODE = False
 
+CORS_ORIGIN_ALLOW_ALL = False
+CORS_ORIGIN_REGEX_WHITELIST = (
+    '^(https?://)?(\w+\.)?tjhsst\.edu$'
+)
+
+CORS_URLS_REGEX = r'^/api/.*$'
+
+
 def _get_current_commit_short_hash():
     cmd = "git rev-parse --short HEAD"
-    return subprocess.check_output(cmd, shell=True).rstrip()
+    return subprocess.check_output(cmd, shell=True, cwd=PROJECT_ROOT).rstrip()
 
 
 def _get_current_commit_long_hash():
     cmd = "git rev-parse HEAD"
-    return subprocess.check_output(cmd, shell=True).rstrip()
+    return subprocess.check_output(cmd, shell=True, cwd=PROJECT_ROOT).rstrip()
 
 
 def _get_current_commit_info():
     cmd = "git show -s --format=medium HEAD"
-    lines = subprocess.check_output(cmd, shell=True).decode().splitlines()
+    lines = subprocess.check_output(cmd, shell=True, cwd=PROJECT_ROOT).decode().splitlines()
     return "\n".join([lines[0][:14].capitalize(), lines[2][8:]]).replace("   ", " ")
 
 
 def _get_current_commit_date():
     cmd = "git show -s --format=%ci HEAD"
-    return subprocess.check_output(cmd, shell=True).rstrip()
+    return subprocess.check_output(cmd, shell=True, cwd=PROJECT_ROOT).rstrip()
 
 
 def _get_current_commit_github_url():
@@ -435,4 +513,5 @@ GIT = {
 
 SENIOR_GRADUATION = "June 18 2016 19:00:00"
 SENIOR_GRADUATION_YEAR = 2016
-ATTENDANCE_LOCK_HOUR = 20 # 10PM
+ATTENDANCE_LOCK_HOUR = 20  # 10PM
+CLEAR_ABSENCE_DAYS = 14  # Two weeks

@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 
 import csv
 import logging
+from cacheops import invalidate_obj
 from datetime import date, MINYEAR, MAXYEAR, datetime, timedelta
 from django import http
 from django.db.models import Count, Q
@@ -40,7 +41,7 @@ def delinquent_students_view(request):
 
     if not lower_absence_limit.isdigit():
         lower_absence_limit = ""
-        lower_absence_limit_filter = 0
+        lower_absence_limit_filter = 1
     else:
         lower_absence_limit_filter = lower_absence_limit
 
@@ -51,14 +52,14 @@ def delinquent_students_view(request):
         upper_absence_limit_filter = upper_absence_limit
 
     try:
-        start_date = datetime.strptime(start_date, "%m/%d/%Y")
+        start_date = datetime.strptime(start_date, "%Y-%m-%d")
         start_date_filter = start_date
     except ValueError:
         start_date = ""
         start_date_filter = date(MINYEAR, 1, 1)
 
     try:
-        end_date = datetime.strptime(end_date, "%m/%d/%Y")
+        end_date = datetime.strptime(end_date, "%Y-%m-%d")
         end_date_filter = end_date
     except ValueError:
         end_date = ""
@@ -86,22 +87,56 @@ def delinquent_students_view(request):
 
     if set(request.GET.keys()).intersection(set(query_params)):
         # attendance MUST have been taken on the activity for the absence to be valid
-        delinquents = (EighthSignup.objects
-                                   .filter(was_absent=True,
-                                           scheduled_activity__attendance_taken=True,
-                                           scheduled_activity__block__date__gte=start_date_filter,
-                                           scheduled_activity__block__date__lte=end_date_filter)
-                                   .values("user")
-                                   .annotate(absences=Count("user"))
-                                   .filter(absences__gte=lower_absence_limit_filter,
-                                           absences__lte=upper_absence_limit_filter)
-                                   .values("user", "absences")
-                                   .order_by("user"))
+        non_delinquents = []
+        delinquents = []
+        if int(upper_absence_limit_filter) == 0 or int(lower_absence_limit_filter) == 0:
+            users_with_absence = (EighthSignup.objects
+                                              .filter(was_absent=True,
+                                                      scheduled_activity__attendance_taken=True,
+                                                      scheduled_activity__block__date__gte=start_date_filter,
+                                                      scheduled_activity__block__date__lte=end_date_filter)
+                                              .values("user")
+                                              .annotate(absences=Count("user"))
+                                              .filter(absences__gte=1)
+                                              .values("user", "absences")
+                                              .order_by("user"))
 
-        user_ids = [d["user"] for d in delinquents]
-        delinquent_users = User.objects.filter(id__in=user_ids).order_by("id")
-        for index, user in enumerate(delinquent_users):
-            delinquents[index]["user"] = user
+            uids_with_absence = [row["user"] for row in users_with_absence]
+            all_students = User.objects.get_students().values_list("id")
+            uids_all_students = [row[0] for row in all_students]
+            uids_without_absence = set(uids_all_students) - set(uids_with_absence)
+            users_without_absence = User.objects.filter(id__in=uids_without_absence).order_by("id")
+            non_delinquents = []
+            for usr in users_without_absence:
+                non_delinquents.append({
+                    "absences": 0,
+                    "user": usr
+                })
+
+            logger.debug(non_delinquents)
+
+        if int(upper_absence_limit_filter) > 0:
+            delinquents = (EighthSignup.objects
+                                       .filter(was_absent=True,
+                                               scheduled_activity__attendance_taken=True,
+                                               scheduled_activity__block__date__gte=start_date_filter,
+                                               scheduled_activity__block__date__lte=end_date_filter)
+                                       .values("user")
+                                       .annotate(absences=Count("user"))
+                                       .filter(absences__gte=lower_absence_limit_filter,
+                                               absences__lte=upper_absence_limit_filter)
+                                       .values("user", "absences")
+                                       .order_by("user"))
+
+            user_ids = [d["user"] for d in delinquents]
+            delinquent_users = User.objects.filter(id__in=user_ids).order_by("id")
+            for index, user in enumerate(delinquent_users):
+                delinquents[index]["user"] = user
+            logger.debug(delinquents)
+
+            delinquents = list(delinquents)
+
+        delinquents += non_delinquents
 
         def filter_by_grade(delinquent):
             grade = delinquent["user"].grade.number
@@ -117,6 +152,10 @@ def delinquent_students_view(request):
             return include
 
         delinquents = list(filter(filter_by_grade, delinquents))
+        # most absences at top
+        delinquents = sorted(delinquents, key=lambda x: (-1 * x["absences"], x["user"].last_name))
+
+        logger.debug(delinquents)
     else:
         delinquents = None
 
@@ -152,8 +191,58 @@ def delinquent_students_view(request):
             row.append(delinquent["user"].grade.number)
             counselor = delinquent["user"].counselor
             row.append(counselor.last_name if counselor else "")
-            row.append("{}@tjhsst.edu".format(delinquent["user"].username))
+            row.append("{}".format(delinquent["user"].tj_email))
             row.append(delinquent["user"].emails[0] if delinquent["user"].emails and len(delinquent["user"].emails) > 0 else "")
+            writer.writerow(row)
+
+        return response
+
+
+@eighth_admin_required
+def no_signups_roster(request, block_id):
+    try:
+        block = EighthBlock.objects.get(id=block_id)
+    except EighthBlock.DoesNotExist:
+        raise http.Http404
+
+    unsigned = block.get_unsigned_students()
+    unsigned = sorted(unsigned, key=lambda u: (u.last_name, u.first_name))
+
+    if request.resolver_match.url_name == "eighth_admin_no_signups_roster":
+        context = {
+            "eighthblock": block,
+            "users": unsigned,
+
+            "admin_page_title": "No Signups Roster"
+        }
+
+        return render(request, "eighth/admin/no_signups_roster.html", context)
+    else:
+        response = http.HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = "attachment; filename=\"no_signups_roster.csv\""
+        writer = csv.writer(response)
+        writer.writerow(["Block ID",
+                         "Block Date",
+                         "Last Name",
+                         "First Name",
+                         "Student ID",
+                         "Grade",
+                         "Counselor",
+                         "TJ Email",
+                         "Other Email"])
+
+        for user in unsigned:
+            row = []
+            row.append("{}".format(block.id))
+            row.append("{}".format(block))
+            row.append(user.last_name)
+            row.append(user.first_name)
+            row.append(user.student_id)
+            row.append(user.grade.number)
+            counselor = user.counselor
+            row.append(counselor.last_name if counselor else "")
+            row.append("{}".format(user.tj_email))
+            row.append(user.emails[0] if user.emails and len(user.emails) > 0 else "")
             writer.writerow(row)
 
         return response
@@ -165,12 +254,12 @@ def after_deadline_signup_view(request):
     end_date = request.GET.get("end", "")
 
     try:
-        start_date = datetime.strptime(start_date, "%m/%d/%Y")
+        start_date = datetime.strptime(start_date, "%Y-%m-%d")
     except ValueError:
         start_date = get_start_date(request)
 
     try:
-        end_date = datetime.strptime(end_date, "%m/%d/%Y")
+        end_date = datetime.strptime(end_date, "%Y-%m-%d")
     except ValueError:
         end_date = start_date + timedelta(days=7)
 
@@ -250,7 +339,7 @@ def activities_without_attendance_view(request):
         scheduled_activities = (block.eighthscheduledactivity_set
                                      .filter(block__date__gte=start_date,
                                              attendance_taken=False)
-                                     .order_by("-activity__special", "activity__name")) # float special to top
+                                     .order_by("-activity__special", "activity__name"))  # float special to top
 
         context["scheduled_activities"] = scheduled_activities
 
@@ -272,12 +361,14 @@ def migrate_outstanding_passes_view(request):
                                                           deleted=False))
         activity.restricted = True
         activity.sticky = True
+        activity.administrative = True
 
         if not activity.description:
             activity.description = ("Pass received from the 8th period "
                                     "office was not turned in.")
 
         activity.save()
+        invalidate_obj(activity)
 
         pass_not_received, created = (EighthScheduledActivity.objects
                                                              .get_or_create(block=block,
@@ -375,6 +466,7 @@ def clear_absence_view(request, signup_id):
             raise http.Http404
         signup.was_absent = False
         signup.save()
+        invalidate_obj(signup)
         if "next" in request.GET:
             return redirect(request.GET["next"])
         return redirect("eighth_admin_dashboard")
@@ -405,6 +497,7 @@ def open_passes_view(request):
             elif status == "reject":
                 signup.reject_pass()
                 rejected += 1
+            invalidate_obj(signup)
 
         messages.success(request, "Accepted {} and rejected {} passes.".format(accepted, rejected))
 

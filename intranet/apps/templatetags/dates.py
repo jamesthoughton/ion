@@ -9,6 +9,7 @@ from django import template
 register = template.Library()
 logger = logging.getLogger(__name__)
 
+
 @register.filter(expects_localtime=True)
 def fuzzy_time(time):
     """Formats a :class:`datetime.time` object relative to the current time
@@ -16,6 +17,7 @@ def fuzzy_time(time):
     d = datetime_date.today()
     dt = datetime.combine(d, time)
     return fuzzy_date(dt)
+
 
 @register.filter(expects_localtime=True)
 def fuzzy_date(date):
@@ -36,7 +38,8 @@ def fuzzy_date(date):
         elif minutes < 60:
             return "{} minutes ago".format(int(seconds // 60))
         elif hours < 24:
-            return "{} hours ago".format(int(diff.seconds // (60 * 60)))
+            hrs = int(diff.seconds // (60 * 60))
+            return "{} hour{} ago".format(hrs, "s" if hrs != 1 else "")
         elif diff.days == 1:
             return "yesterday"
         elif diff.days < 7:
@@ -57,7 +60,8 @@ def fuzzy_date(date):
         elif minutes < 60:
             return "in {} minutes".format(int(seconds // 60))
         elif hours < 24:
-            return "in {} hours".format(int(diff.seconds // (60 * 60)))
+            hrs = int(diff.seconds // (60 * 60))
+            return "in {} hour{}".format(hrs, "s" if hrs != 1 else "")
         elif diff.days == 1:
             return "tomorrow"
         elif diff.days < 7:

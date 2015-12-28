@@ -4,18 +4,15 @@ from __future__ import unicode_literals
 import logging
 import datetime
 import bleach
-from calendar import monthrange
 from .models import Event
-from .forms import EventForm
-from ..auth.decorators import events_admin_required
-from intranet import settings
+from .forms import EventForm, AdminEventForm
 from django.core import exceptions
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
-from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+
 
 @login_required
 def events_view(request):
@@ -23,7 +20,7 @@ def events_view(request):
         Events homepage. Shows a list of events occurring in the next week, month, and future.
 
     """
-    #if settings.PRODUCTION and not request.user.has_admin_permission('events'):
+    # if settings.PRODUCTION and not request.user.has_admin_permission('events'):
     #    # In production, go to not ready page.
     #    return render(request, "events/not_ready.html")
 
@@ -50,7 +47,7 @@ def events_view(request):
 
     if is_events_admin and "show_all" in request.GET:
         viewable_events = (Event.objects
-                            .prefetch_related("groups"))
+                           .prefetch_related("groups"))
     else:
         viewable_events = (Event.objects
                                 .visible_to_user(request.user)
@@ -99,6 +96,7 @@ def events_view(request):
     }
     return render(request, "events/home.html", context)
 
+
 @login_required
 def join_event_view(request, id):
     """
@@ -108,12 +106,14 @@ def join_event_view(request, id):
         id: event id
 
     """
-    #if settings.PRODUCTION and not request.user.has_admin_permission('events'):
+    # if settings.PRODUCTION and not request.user.has_admin_permission('events'):
     #    return render(request, "events/not_ready.html")
 
     event = get_object_or_404(Event, id=id)
 
     if request.method == "POST":
+        if not event.show_attending:
+            return redirect("events")
         if "attending" in request.POST:
             attending = request.POST.get("attending")
             attending = (attending == "true")
@@ -131,6 +131,7 @@ def join_event_view(request, id):
     }
     return render(request, "events/join_event.html", context)
 
+
 @login_required
 def event_roster_view(request, id):
     """
@@ -143,11 +144,11 @@ def event_roster_view(request, id):
 
     """
 
-    #if settings.PRODUCTION and not request.user.has_admin_permission('events'):
+    # if settings.PRODUCTION and not request.user.has_admin_permission('events'):
     #    return render(request, "events/not_ready.html")
 
     event = get_object_or_404(Event, id=id)
-    
+
     full_roster = list(event.attending.all())
     viewable_roster = []
     num_hidden_members = 0
@@ -166,6 +167,7 @@ def event_roster_view(request, id):
     }
     return render(request, "events/roster.html", context)
 
+
 @login_required
 def add_event_view(request):
     """
@@ -174,7 +176,7 @@ def add_event_view(request):
         Otherwise, their event is added in the system but must be approved.
 
     """
-    #if settings.PRODUCTION and not request.user.has_admin_permission('events'):
+    # if settings.PRODUCTION and not request.user.has_admin_permission('events'):
     #    return render(request, "events/not_ready.html")
 
     is_events_admin = request.user.has_admin_permission('events')
@@ -212,6 +214,7 @@ def add_event_view(request):
     }
     return render(request, "events/add_modify.html", context)
 
+
 @login_required
 def modify_event_view(request, id=None):
     """
@@ -228,7 +231,10 @@ def modify_event_view(request, id=None):
         raise exceptions.PermissionDenied
 
     if request.method == "POST":
-        form = EventForm(data=request.POST, instance=event, all_groups=request.user.has_admin_permission('groups'))
+        if is_events_admin:
+            form = AdminEventForm(data=request.POST, instance=event, all_groups=request.user.has_admin_permission('groups'))
+        else:
+            form = EventForm(data=request.POST, instance=event, all_groups=request.user.has_admin_permission('groups'))
         logger.debug(form)
         if form.is_valid():
             obj = form.save()
@@ -237,11 +243,14 @@ def modify_event_view(request, id=None):
             obj.description = bleach.linkify(obj.description)
             obj.save()
             messages.success(request, "Successfully modified event.")
-            #return redirect("events")
+            # return redirect("events")
         else:
             messages.error(request, "Error adding event.")
     else:
-        form = EventForm(instance=event, all_groups=request.user.has_admin_permission('groups'))
+        if is_events_admin:
+            form = AdminEventForm(instance=event, all_groups=request.user.has_admin_permission('groups'))
+        else:
+            form = EventForm(instance=event, all_groups=request.user.has_admin_permission('groups'))
     context = {
         "form": form,
         "action": "modify",

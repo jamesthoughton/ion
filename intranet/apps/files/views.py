@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
+import base64
 import logging
+import os
 import pysftp
 import tempfile
-import os
-import base64
 from os.path import normpath
 from Crypto import Random
 from Crypto.Cipher import AES
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import StreamingHttpResponse
-from django.core.servers.basehttp import FileWrapper
+from wsgiref.util import FileWrapper
 from django.core.urlresolvers import reverse
 from django.shortcuts import render, redirect
 from django.views.decorators.debug import sensitive_variables, sensitive_post_parameters
@@ -22,8 +22,10 @@ from intranet import settings
 
 logger = logging.getLogger(__name__)
 
+
 def create_session(hostname, username, password):
     return pysftp.Connection(hostname, username=username, password=password)
+
 
 @login_required
 def files_view(request):
@@ -35,6 +37,7 @@ def files_view(request):
         "hosts": hosts
     }
     return render(request, "files/home.html", context)
+
 
 @login_required
 @sensitive_variables('message', 'key', 'iv', 'ciphertext')
@@ -77,9 +80,9 @@ def files_auth(request):
 def get_authinfo(request):
     """Get authentication info from the encrypted message.
     """
-    if (("files_iv" not in request.session) or 
-        ("files_text" not in request.session) or 
-        ("files_key" not in request.COOKIES)):
+    if (("files_iv" not in request.session) or
+            ("files_text" not in request.session) or
+            ("files_key" not in request.COOKIES)):
         return False
 
     """
@@ -100,6 +103,7 @@ def get_authinfo(request):
         "username": request.user.username,
         "password": password
     }
+
 
 def windows_dir_format(host_dir, user):
     """Format a string for the location of the user's folder on the
@@ -122,6 +126,7 @@ def windows_dir_format(host_dir, user):
         win_path = ""
     return host_dir.replace("{win}", win_path)
 
+
 @login_required
 def files_type(request, fstype=None):
     """Do all processing (directory listing, file downloads) for a
@@ -133,7 +138,9 @@ def files_type(request, fstype=None):
         messages.error(request, "Could not find host in database.")
         return redirect("files")
 
-    if not host.visible_to(request.user):
+    if host.available_to_all:
+        pass
+    elif not host.visible_to(request.user):
         messages.error(request, "You don't have permission to access this host.")
         return redirect("files")
 
@@ -150,15 +157,14 @@ def files_type(request, fstype=None):
         if "authentication" in error_msg:
             return redirect("files_auth")
         return redirect("files")
-    else:
+    finally:
         # Delete the stored credentials, so they aren't mistakenly used or accessed later.
-        authinfo = None
         del authinfo
 
     if host.directory:
         host_dir = host.directory
         if "{}" in host_dir:
-            host_dir = host_dir.format(authinfo["username"])
+            host_dir = host_dir.format(request.user.username)
         if "{win}" in host_dir:
             host_dir = windows_dir_format(host_dir, request.user)
             try:
@@ -189,12 +195,13 @@ def files_type(request, fstype=None):
     def can_access_path(fsdir):
         return normpath(fsdir).startswith(default_dir)
 
-
     if "file" in request.GET:
         # Download file
         filepath = request.GET.get("file")
         filepath = normpath(filepath)
         filebase = os.path.basename(filepath)
+        filebase_escaped = filebase.encode("ascii", "ignore")
+        filebase_escaped = filebase_escaped.replace(",", "")
         if can_access_path(filepath):
             try:
                 stat = sftp.stat(filepath)
@@ -206,7 +213,7 @@ def files_type(request, fstype=None):
                 messages.error(request, "Too large to download (>200MB)")
                 return redirect("/files/{}?dir={}".format(fstype, os.path.dirname(filepath)))
 
-            tmpfile = tempfile.TemporaryFile(prefix="ion_{}_{}".format(request.user.username, filebase))
+            tmpfile = tempfile.TemporaryFile(prefix="ion_filecenter_{}_{}".format(request.user.username, filebase_escaped))
             logger.debug(tmpfile)
 
             try:
@@ -220,7 +227,7 @@ def files_type(request, fstype=None):
             chunk_size = 8192
             response = StreamingHttpResponse(FileWrapper(tmpfile, chunk_size), content_type="application/octet-stream")
             response['Content-Length'] = content_len
-            response["Content-Disposition"] = "attachment; filename={}".format(filebase)
+            response["Content-Disposition"] = "attachment; filename={}".format(filebase_escaped)
             return response
 
     fsdir = request.GET.get("dir")
@@ -256,9 +263,7 @@ def files_type(request, fstype=None):
                 "too_big": stat.st_size > settings.FILES_MAX_DOWNLOAD_SIZE
             })
 
-
-
-    current_dir = sftp.pwd # current directory
+    current_dir = sftp.pwd  # current directory
     dir_list = current_dir.split("/")
     if len(dir_list) > 1 and len(dir_list[-1]) == 0:
         dir_list.pop()
@@ -279,6 +284,7 @@ def files_type(request, fstype=None):
 
     return render(request, "files/directory.html", context)
 
+
 @login_required
 def files_upload(request, fstype=None):
     fsdir = request.GET.get("dir", None)
@@ -290,8 +296,9 @@ def files_upload(request, fstype=None):
     except Host.DoesNotExist:
         messages.error(request, "Could not find host in database.")
         return redirect("files")
-
-    if not host.visible_to(request.user):
+    if host.available_to_all:
+        pass
+    elif not host.visible_to(request.user):
         messages.error(request, "You don't have permission to access this host.")
         return redirect("files")
 
@@ -299,7 +306,6 @@ def files_upload(request, fstype=None):
 
     if not authinfo:
         return redirect("{}?next={}".format(reverse("files_auth"), request.get_full_path()))
-
 
     if request.method == "POST":
         form = UploadFileForm(request.POST, request.FILES)
@@ -348,6 +354,7 @@ def files_upload(request, fstype=None):
     }
     return render(request, "files/upload.html", context)
 
+
 def handle_file_upload(file, fstype, fsdir, sftp, request=None):
     try:
         sftp.chdir(fsdir)
@@ -365,6 +372,5 @@ def handle_file_upload(file, fstype, fsdir, sftp, request=None):
     except OSError as e:
         messages.error(request, "Unable to upload: {}".format(e))
         return
-
 
     messages.success(request, "Uploaded {} to {}".format(file.name, fsdir))

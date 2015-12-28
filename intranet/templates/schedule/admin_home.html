@@ -2,7 +2,7 @@
 {% load staticfiles %}
 
 {% block title %}
-    {{ block.super}} - Schedule
+    {{ block.super }} - Schedule
 {% endblock %}
 
 {% block js %}
@@ -18,7 +18,7 @@ function modify_daytype_form() {
 }
 
 defaultFillWarning = function() {
-    return confirm("This operation will change all Mondays to 'Anchor Day,' Tuesday/Thursdays to 'Blue Day,' and Wednesday/Fridays to 'Red Day' on days that currently have no schedule in this month.\n\nThis operation cannot be undone. Continue?");
+    return confirm("\n>>> {{ month_name }} {{ year_name }} <<<\n\nThis operation will change all Mondays to 'Anchor Day,' Tuesday/Thursdays to 'Blue Day,' and Wednesday/Fridays to 'Red Day' on days that currently have no schedule in this month.\n\nThis operation cannot be undone. Continue?");
 }
 
 $(function() {
@@ -119,9 +119,9 @@ $(function() {
         margin: 8px -40px;
         text-align: center;
         left: 50%;
-        width: 120px;
+        width: 160px;
         height: 30px;
-        margin-left: -60px;
+        margin-left: -80px;
     }
 
     .schedule-month > tbody > tr > td .buttons .button {
@@ -225,11 +225,16 @@ $(function() {
         </form>
 
         <div class="schedule-methods">
-            <form action="" method="post" onsubmit="return defaultFillWarning()">
+            <form action="" method="post" onsubmit="return defaultFillWarning()" style="display: inline">
                 {% csrf_token %}
                 <input type="hidden" name="default_fill" value="1" />
                 <input type="hidden" name="month" value="{{ this_month }}" />
                 <input type="submit" value="Fill Month with Defaults" />
+            </form>
+            <form action="" method="post" style="display: inline">
+                {% csrf_token %}
+                <input type="hidden" name="delete_cache" value="1" />
+                <input type="submit" value="Clear Cache" class="small-button" />
             </form>
         </div>
 
@@ -243,7 +248,7 @@ $(function() {
                 </a>
             </th>
             <th colspan="1">
-                <h2>{{ month_name }}</h2>
+                <h2>{{ month_name }} {{ year_name }}</h2>
             </th>
             <th>
                 <a class="button" title="Next month" href="?month={{ next_month }}">
@@ -266,11 +271,11 @@ $(function() {
             {% for day in week %}
             <td{% if forloop.counter == 6 or forloop.counter == 7 %} class="weekend"{% endif %}>
             {% if not day.empty %}
-                <b>{{ day.day }}.</b>
+                <b>{{ day.day }}</b>
                 {% if day.schedule %}
                         <em class="day">
                             <a href="{% url 'schedule_daytype' day.schedule.id %}" class="day-name {{ day.schedule.class_name }}">
-                                {{ day.schedule.name }}
+                                {{ day.schedule.name|safe }}{% if day.dayobj.comment %} {{ day.dayobj.comment }}{% endif %}
                             </a>
                         </em>
                     <table class="bellschedule-table">
@@ -282,6 +287,9 @@ $(function() {
                     {% endfor %}
                     </table>
                 {% else %}
+                    <em class="day">
+                        {% if day.dayobj.comment %} {{ day.dayobj.comment }}{% endif %}
+                    </em>
                     <b>No schedule assigned.</b>
                 {% endif %}
                 <span class="buttons"{% if not day.schedule %} style="visibility: visible"{% endif %}>
@@ -295,6 +303,10 @@ $(function() {
                             <i class='edit fa fa-reply'></i>
                         </a>
                     {% endif %}
+
+                    <a href="{% url 'schedule_comment' %}?date={{ day.formatted_date }}" class="button make-comment-button" title="Add Comment on Day" data-endpoint="{% url 'schedule_comment' %}" data-date="{{ day.formatted_date }}">
+                        <i class='edit fa fa-comment'></i>
+                    </a>
 
                     <a href="{% url 'schedule_daytype' %}?assign_date={{ day.formatted_date }}" class="button" title="Custom Schedule">
                         <i class='edit fa fa-star'></i>

@@ -20,30 +20,39 @@ $(document).ready(function() {
 
     $("input[type=submit]").click(function(e) {
         document.forms["auth_form"].submit();
-        $(this).val("  ").prop("disabled", "disabled");
+        $(this).addClass("load-spinner").val("  ").prop("disabled", "disabled");
         var spinner = new Spinner(spinnerOptions).spin(document.querySelector(".spinner-container"));
     });
 
-    footerCheck = function() {
-        var win = $(window).height();
-        var pg = $(document).height();
+    $(".title h1").dblclick(function() {
+        var n = $("span.letter-n", $(this));
+        if(n.length == 0) {
+            $(this).html("TJ Intra<span class='letter-n'>n</span>et");
+            $("body").append("<audio id='tdfw' src='https://www.tjhsst.edu/~2016jwoglom/uploads/tdfw.mp3' preload></audio>");
+            $(".title h1 .letter-n").css({"cursor": "pointer"}).dblclick(function() {
+                document.querySelector("#tdfw").play();
+                var e = $("input, .schedule, .footer a");
+                var ip = $(this).parent();
+                var p = $(this).parent().parent();
+                var s = $("input[type=submit]");
+                p.addClass("bounce");
 
-        if(pg - win > 20) {
-            $(".footer").css({
-                position: "absolute",
-                top: (pg - 20)+"px"
-            });
-        } else {
-            $(".footer").css({
-                position: "fixed",
-                top: "auto"
+                setTimeout(function() {
+
+                    $(".logo").addClass("flip180");
+                    ip.addClass("scaleflip");
+                    e.addClass("pulse");
+                    s.removeClass("pulse").addClass("wobble");
+                    setTimeout(function() {
+                        e.removeClass("pulse");
+                        p.removeClass("bounce");
+                        s.removeClass("wobble");
+                        $(".logo").removeClass("flip180");
+                        ip.removeClass("scaleflip");
+                    }, 5000)
+                }, 6000);
             });
         }
-    }
-
-    $(window).resize(function() {
-        footerCheck();
     });
-    footerCheck();
 
 });

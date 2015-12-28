@@ -10,8 +10,8 @@ from .models import (
     EighthBlock, EighthActivity, EighthSignup,
     EighthSponsor, EighthScheduledActivity)
 
-
 logger = logging.getLogger(__name__)
+
 
 class EighthActivityListSerializer(serializers.HyperlinkedModelSerializer):
     url = serializers.HyperlinkedIdentityField(view_name="api_eighth_activity_detail")
@@ -19,7 +19,6 @@ class EighthActivityListSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = EighthActivity
         fields = ("id",
-                  "aid",
                   "url",
                   "name")
 
@@ -29,12 +28,12 @@ class EighthActivityDetailSerializer(serializers.HyperlinkedModelSerializer):
 
     def fetch_scheduled_on(self, act):
         scheduled_on = {}
-        scheduled_activities = EighthScheduledActivity.objects.filter(activity=act)
+        scheduled_activities = EighthScheduledActivity.objects.filter(activity=act).select_related("block")
 
-        user = self.context.get("user", self.context["request"].user)
-        favorited_activities = set(user.favorited_activity_set
-                                       .values_list("id", flat=True))
-        available_restricted_acts = EighthActivity.restricted_activities_available_to_user(user)
+        # user = self.context.get("user", self.context["request"].user)
+        # favorited_activities = set(user.favorited_activity_set
+        #                               .values_list("id", flat=True))
+        # available_restricted_acts = EighthActivity.restricted_activities_available_to_user(user)
 
         for scheduled_activity in scheduled_activities:
             scheduled_on[scheduled_activity.block.id] = {
@@ -42,13 +41,13 @@ class EighthActivityDetailSerializer(serializers.HyperlinkedModelSerializer):
                 "date": scheduled_activity.block.date,
                 "block_letter": scheduled_activity.block.block_letter,
                 "url": reverse("api_eighth_block_detail",
-                           args=[scheduled_activity.block.id],
-                           request=self.context["request"]),
+                               args=[scheduled_activity.block.id],
+                               request=self.context["request"]),
                 "roster": {
                     "id": scheduled_activity.id,
                     "url": reverse("api_eighth_scheduled_activity_signup_list",
-                               args=[scheduled_activity.id],
-                               request=self.context["request"]),
+                                   args=[scheduled_activity.id],
+                                   request=self.context["request"]),
                 }
             }
         return scheduled_on
@@ -56,7 +55,6 @@ class EighthActivityDetailSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = EighthActivity
         fields = ("id",
-                  "aid",
                   "name",
                   "description",
                   "administrative",
@@ -91,14 +89,14 @@ class EighthBlockDetailSerializer(serializers.Serializer):
     def process_scheduled_activity(self, scheduled_activity, request=None, user=None, favorited_activities=None, available_restricted_acts=None):
         activity = scheduled_activity.activity
         restricted_for_user = (activity.restricted and
-                               not (user.is_eighth_admin and not user.is_student)
-                               and (activity.id not in available_restricted_acts))
+                               not (user.is_eighth_admin and not user.is_student) and
+                               (activity.id not in available_restricted_acts))
         prefix = "Special: " if activity.special else ""
         prefix += activity.name
         if scheduled_activity.title:
             prefix += " - " + scheduled_activity.title
         middle = " (R)" if restricted_for_user else ""
-        suffix  = " (S)" if activity.sticky else ""
+        suffix = " (S)" if activity.sticky else ""
         suffix += " (BB)" if activity.both_blocks else ""
         suffix += " (A)" if activity.administrative else ""
         suffix += " (Deleted)" if activity.deleted else ""
@@ -142,7 +140,6 @@ class EighthBlockDetailSerializer(serializers.Serializer):
         }
         return activity_info
 
-
     def fetch_activity_list_with_metadata(self, block):
         activity_list = {}
         scheduled_activity_to_activity_map = {}
@@ -176,7 +173,6 @@ class EighthBlockDetailSerializer(serializers.Serializer):
                                                .values_list("scheduled_activity__activity_id")
                                                .annotate(user_count=Count("scheduled_activity")))
 
-
         for activity, user_count in activities_with_signups:
             activity_list[activity]["roster"]["count"] = user_count
 
@@ -189,7 +185,7 @@ class EighthBlockDetailSerializer(serializers.Serializer):
 
         all_sponsors = dict((sponsor[0],
                              {"user_id": sponsor[1],
-                              "name": sponsor[2]+" "+sponsor[3] if sponsor[4] else sponsor[3]}) for sponsor in sponsors_dict)
+                              "name": sponsor[2] + " " + sponsor[3] if sponsor[4] else sponsor[3]}) for sponsor in sponsors_dict)
 
         activity_ids = scheduled_activities.values_list("activity__id")
         sponsorships = (EighthActivity.sponsors
@@ -323,13 +319,15 @@ class EighthSignupSerializer(serializers.ModelSerializer):
                   "scheduled_activity",
                   "user")
 
+
 class UserSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
 
     def get_url(self, user):
         return reverse("api_user_profile_detail",
-                   args=[user.id],
-                   request=self.context["request"])
+                       args=[user.id],
+                       request=self.context["request"])
+
     class Meta:
         model = User
         fields = ("id",
@@ -337,12 +335,21 @@ class UserSerializer(serializers.ModelSerializer):
                   "username",
                   "url")
 
+
 class EighthScheduledActivitySerializer(serializers.ModelSerializer):
     block = serializers.SerializerMethodField("block_info")
     activity = serializers.SerializerMethodField("activity_info")
     signups = serializers.SerializerMethodField("signups_info")
     name = serializers.SerializerMethodField()
     capacity = serializers.SerializerMethodField()
+
+    def __init__(self, *args, **kwargs):
+        super(EighthScheduledActivitySerializer, self).__init__(*args, **kwargs)
+        logger.debug(kwargs)
+        if "context" in kwargs and "request" in kwargs["context"]:
+            self.request = kwargs["context"]["request"]
+        else:
+            self.request = None
 
     def get_name(self, scheduled_activity):
         return scheduled_activity.title_with_flags
@@ -353,7 +360,7 @@ class EighthScheduledActivitySerializer(serializers.ModelSerializer):
     def block_info(self, scheduled_activity):
         return {
             "id": scheduled_activity.block.id,
-            "date": signup.scheduled_activity.block.date,
+            "date": scheduled_activity.block.date,
             "url": reverse("api_eighth_block_detail",
                            args=[scheduled_activity.block.id],
                            request=self.context["request"])
@@ -370,8 +377,19 @@ class EighthScheduledActivitySerializer(serializers.ModelSerializer):
 
     def signups_info(self, scheduled_activity):
         signups = scheduled_activity.members
+
+        if self.request:
+            signups = scheduled_activity.get_viewable_members_serializer(self.request)
+
         serializer = UserSerializer(signups, context=self.context, many=True)
-        return serializer.data
+        return {
+            "members": serializer.data,
+            "count": scheduled_activity.members.count(),
+            "viewable_count": signups.count()
+        }
+
+    def num_signups(self, scheduled_activity):
+        return scheduled_activity.members.count()
 
     class Meta:
         model = EighthScheduledActivity
@@ -390,6 +408,7 @@ def add_signup_validator(value):
         return
     raise serializers.ValidationError('Either scheduled_activity, or block and activity must exist. use_scheduled_activity must be false to use block and activity.')
 
+
 class EighthAddSignupSerializer(serializers.Serializer):
     block = serializers.PrimaryKeyRelatedField(queryset=EighthBlock.objects.all(), required=False)
     activity = serializers.PrimaryKeyRelatedField(queryset=EighthActivity.objects.all(), required=False)
@@ -399,4 +418,3 @@ class EighthAddSignupSerializer(serializers.Serializer):
 
     class Meta:
         validators = [add_signup_validator]
-

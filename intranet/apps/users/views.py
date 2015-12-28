@@ -2,6 +2,7 @@
 from __future__ import unicode_literals
 
 from six.moves import cStringIO as StringIO
+import csv
 import io
 import logging
 import os
@@ -11,6 +12,7 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import render, redirect
 from .models import User, Grade, Class
 from ..eighth.models import EighthBlock, EighthSignup, EighthScheduledActivity, EighthSponsor
+from ..eighth.utils import get_start_date
 from intranet import settings
 from intranet.db.ldap_db import LDAPConnection, LDAPFilter
 
@@ -25,7 +27,6 @@ def profile_view(request, user_id=None):
         user_id
             The ID of the user whose profile is being viewed. If not
             specified, show the user's own profile.
-
     """
     if request.user.is_eighthoffice and "full" not in request.GET and user_id is not None:
         return redirect("eighth_profile", user_id=user_id)
@@ -33,14 +34,13 @@ def profile_view(request, user_id=None):
     if user_id is not None:
         try:
             profile_user = User.get_user(id=user_id)
-            
+
             if profile_user is None:
                 raise Http404
         except User.DoesNotExist:
             raise Http404
     else:
         profile_user = request.user
-
 
     if "clear_cache" in request.GET and request.user.is_eighth_admin:
         profile_user.clear_cache()
@@ -51,14 +51,15 @@ def profile_view(request, user_id=None):
 
     eighth_schedule = []
     start_block = EighthBlock.objects.get_first_upcoming_block()
+
+    blocks = []
     if start_block:
-        blocks = [start_block] + list(start_block.next_blocks(num_blocks-1))
-    else:
-        blocks = []
+        blocks = [start_block] + list(start_block.next_blocks(num_blocks - 1))
 
     for block in blocks:
-        sch = {}
-        sch["block"] = block
+        sch = {
+            "block": block
+        }
         try:
             sch["signup"] = EighthSignup.objects.get(scheduled_activity__block=block, user=profile_user)
         except EighthSignup.DoesNotExist:
@@ -67,22 +68,17 @@ def profile_view(request, user_id=None):
 
     if profile_user.is_eighth_sponsor:
         sponsor = EighthSponsor.objects.get(user=profile_user)
-
-        logger.debug("Eighth sponsor {}".format(sponsor))
-
-        eighth_sponsor_schedule = []
-        if start_block:
-            activities_sponsoring = (EighthScheduledActivity.objects.for_sponsor(sponsor)
-                                                                    .filter(block__date__gt=start_block.date))
-            logger.debug(activities_sponsoring)
-            surrounding_blocks = [start_block] + list(start_block.next_blocks()[:num_blocks-1])
-            for b in surrounding_blocks:
-                sponsored_for_block = activities_sponsoring.filter(block=b)
-                for schact in sponsored_for_block:
-                    eighth_sponsor_schedule.append(schact)
-
+        start_date = get_start_date(request)
+        eighth_sponsor_schedule = (EighthScheduledActivity.objects.for_sponsor(sponsor)
+                                   .filter(block__date__gte=start_date)
+                                   .order_by("block__date",
+                                             "block__block_letter"))
+        eighth_sponsor_schedule = eighth_sponsor_schedule[:10]
     else:
         eighth_sponsor_schedule = None
+
+    if not profile_user.can_view_eighth and not request.user == profile_user:
+        eighth_schedule = []
 
     context = {
         "profile_user": profile_user,
@@ -102,7 +98,6 @@ def picture_view(request, user_id, year=None):
         year
             The user's picture from this year is fetched. If not
             specified, use the preferred picture.
-
     """
     try:
         user = User.get_user(id=user_id)
@@ -120,17 +115,7 @@ def picture_view(request, user_id, year=None):
                     preferred = preferred[:-len("Photo")]
 
             if preferred == "AUTO":
-                if user.user_type == "tjhsstTeacher":
-                    current_grade = 12
-                else:
-                    current_grade = int(user.grade)
-                    if current_grade > 12:
-                        current_grade = 12
-
-                for i in reversed(range(9, current_grade + 1)):
-                    data = user.photo_binary(Grade.names[i - 9])
-                    if data:
-                        break
+                data = user.default_photo()
                 if data is None:
                     image_buffer = io.open(default_image_path, mode="rb")
                 else:
@@ -165,17 +150,20 @@ def picture_view(request, user_id, year=None):
 
         return response
 
+
 @login_required
 def class_section_view(request, section_id):
     c = Class(id=section_id)
     try:
-        name = c.name
+        c.name
     except Exception:
         raise Http404
 
+    students = sorted(c.students, key=lambda x: (x.last_name, x.first_name))
+
     attrs = {
         "name": c.name,
-        "students": sorted(c.students, key=lambda x: (x.last_name, x.first_name)),
+        "students": students,
         "teacher": c.teacher,
         "quarters": c.quarters,
         "periods": c.periods,
@@ -186,22 +174,43 @@ def class_section_view(request, section_id):
         "sections": c.sections
     }
 
+    if request.resolver_match.url_name == "class_section_csv":
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = "attachment; filename=\"class_{}.csv\"".format(section_id)
+
+        writer = csv.writer(response)
+
+        title_row = []
+
+        writer.writerow(["Name",
+                         "Student ID",
+                         "Grade",
+                         "TJ Email"])
+
+        for s in students:
+            writer.writerow([s.last_first,
+                             s.student_id if s.student_id else "",
+                             s.grade.number,
+                             s.tj_email if s.tj_email else ""])
+        return response
+
     context = {
-        "class": attrs
+        "class": attrs,
+        "show_emails": (request.user.is_teacher or request.user.is_eighth_admin)
     }
 
     return render(request, "users/class.html", context)
+
 
 @login_required
 def class_room_view(request, room_id):
     c = LDAPConnection()
     room_id = LDAPFilter.escape(room_id)
-    
-    classes = c.search("ou=schedule,dc=tjhsst,dc=edu", 
+
+    classes = c.search("ou=schedule,dc=tjhsst,dc=edu",
                        "(&(objectClass=tjhsstClass)(roomNumber={}))".format(room_id),
                        ["tjhsstSectionId"]
-    )
-
+                       )
 
     if len(classes) > 0:
         schedule = []
@@ -212,7 +221,7 @@ def class_room_view(request, room_id):
             schedule.append((sortvalue, class_object))
 
         ordered_schedule = sorted(schedule, key=lambda e: e[0])
-        classes_objs = list(zip(*ordered_schedule)[1]) # The class objects
+        classes_objs = list(zip(*ordered_schedule)[1])  # The class objects
     else:
         classes_objs = []
         raise Http404
@@ -224,14 +233,15 @@ def class_room_view(request, room_id):
 
     return render(request, "users/class_room.html", context)
 
+
 @login_required
 def all_classes_view(request):
     c = LDAPConnection()
-    
-    classes = c.search("ou=schedule,dc=tjhsst,dc=edu", 
+
+    classes = c.search("ou=schedule,dc=tjhsst,dc=edu",
                        "objectClass=tjhsstClass",
                        ["tjhsstSectionId"]
-    )
+                       )
 
     logger.debug("{} classes found.".format(len(classes)))
 
@@ -244,7 +254,7 @@ def all_classes_view(request):
             schedule.append((sortvalue, class_object))
 
         ordered_schedule = sorted(schedule, key=lambda e: e[0])
-        classes_objs = list(zip(*ordered_schedule)[1]) # The class objects
+        classes_objs = list(zip(*ordered_schedule)[1])  # The class objects
     else:
         classes_objs = []
         raise Http404

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
+from cacheops import invalidate_obj
 from six.moves import cPickle as pickle
 from django import http
 from django.contrib import messages
 from django.core.urlresolvers import reverse
-from django.db.models import Q
 from django.shortcuts import redirect, render
 from ....auth.decorators import eighth_admin_required
 from ...forms.admin.sponsors import SponsorForm
@@ -24,9 +24,12 @@ def add_sponsor_view(request):
         else:
             messages.error(request, "Error adding sponsor.")
             request.session["add_sponsor_form"] = pickle.dumps(form)
-            return redirect("eighth_admin_dashboard")
-    else:
-        return http.HttpResponseNotAllowed(["POST"], "HTTP 405: METHOD NOT ALLOWED")
+
+    context = {
+        "admin_page_title": "Add Sponsor",
+        "form": SponsorForm
+    }
+    return render(request, "eighth/admin/add_sponsor.html", context)
 
 
 @eighth_admin_required
@@ -105,15 +108,14 @@ def sponsor_schedule_view(request, sponsor_id):
         activity_id = request.GET.get('activity')
         activity = EighthActivity.objects.get(id=activity_id)
         sched_acts = sched_acts.filter(activity=activity)
-    
-
 
     context = {
         "scheduled_activities": sched_acts,
         "activities": activities,
         "activity": activity,
         "admin_page_title": "Sponsor Schedule",
-        "sponsor": sponsor
+        "sponsor": sponsor,
+        "all_sponsors": EighthSponsor.objects.all()
     }
 
     return render(request, "eighth/admin/sponsor_schedule.html", context)

@@ -55,15 +55,26 @@
     font-size: 12px;
     color: rgb(144, 144, 144);
     position: absolute;
-    right: 10px;
+    right: 8px;
 }
 
-/* when widget is resized next to announcements,
-   the text nearly goes over the box */
 @media (max-width: 960px) {
+
+    /* when widget is resized next to announcements,
+       the text nearly goes over the box */
     .widget.eighth-widget .info,
     .widget.sponsor-widget .info {
         font-size: 11px;
+    }
+
+    /* move buttons over a few pixels */
+    .block-header a {
+        margin-right: -4px;
+    }
+
+    .widget-title .info a {
+        margin-right: -4px;
+        font-size: 9px;
     }
 }
 
@@ -168,37 +179,38 @@
     position: relative;
 }
 
+
+.block-header .block-letter {
+    width: auto;
+    padding: 0 4px;
+}
+
+.block-header .block-letter-date {
+    max-width: 106px;
+    overflow: hidden;
+    display: inline-block;
+    text-overflow: ellipsis;
+    height: 30px;
+    white-space: nowrap;
+}
+
 .block-signup,
 .block-sponsorship {
     position: absolute;
-    left: 126px;
+    left: 114px;
     width: 100%;
-    width: calc(100% - 176px);
+    /* "Modify" text */
+    width: calc(100% - 167px);
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
 }
 
-/* Attendance Locked/Signup Unlocked */
-
-/* make room for lock/unlock icon */
-.block-signup.locked,
-.block-sponsorship.unlocked {
-    left: 114px;
-}
-
-.eighth-block .block-sponsorship.locked {
-    left: 113px;
-}
-
-.block-sponsorship.locked > i {
-    padding-right: 2px;
-}
-
-/* "Take Now" text results in overflows */
-.eighth-block.no-attendance.locked .block-sponsorship {
+.block-sponsorship {
     width: calc(100% - 195px);
 }
+
+/* Attendance Locked/Signup Unlocked */
 
 .eighth-block.no-attendance.locked .block-date,
 .eighth-block.no-attendance.locked .block-sponsorship,
@@ -206,7 +218,7 @@
     color: rgb(0, 132, 62); /* green */
 }
 
-.eighth-block.no-attendance.locked .block-letter {
+.eighth-block.no-attendance.locked.no-attendance-lock .block-letter {
     background-color: rgb(0, 132, 62);
     color: rgb(242,242,242);
 }
@@ -222,11 +234,6 @@
 .block-sponsorship.attendance-taken > i {
     padding-right: 1px;
 }
-
-.block-sponsorship.attendance-taken {
-    color: rgb(0, 132, 62);
-}
-
 /* Open Passes */
 
 .eighth-block .block-sponsorship.open-passes {
@@ -239,13 +246,10 @@
 
 /* No Act Selected */
 
-/* make sure "No activity selected" always shows */
-.eighth-block .block-signup.no-activity-selected {
-    width: calc(100% - 168px);
-}
-
 .block-signup.no-activity-selected.today {
-    color: rgb(255, 72, 72); /* red */
+    color: rgb(72, 72, 72);
+    font-weight: bold;
+    /* color: rgb(255, 72, 72); red */
 }
 
 /* make sure "Not sponsoring an activity" always shows;
@@ -258,13 +262,13 @@ div.eighth-block .block-sponsorship.no-activity-selected {
 
 /* red on white block letter icon */
 .eighth-block.warning .block-letter,
-.eighth-block.no-attendance.today .block-letter {
+.eighth-block.no-attendance.today.no-attendance-lock .block-letter {
     background-color: rgb(255, 72, 72); /* red */
     color: rgb(242, 242, 242);
 }
 
-.eighth-block.no-attendance.today .block-sponsorship,
-.eighth-block.no-attendance.today .ui-link {
+.eighth-block.no-attendance.today.no-attendance-lock .block-sponsorship,
+.eighth-block.no-attendance.today.no-attendance-lock .btn-link {
     color: rgb(255, 72, 72); /* red */
 }
 
@@ -272,7 +276,7 @@ div.eighth-block .block-sponsorship.no-activity-selected {
 
 /* needs to override */
 div.eighth-block.open-passes > div.block-header > .block-sponsorship,
-div.eighth-block.open-passes > div.block-header > .ui-link {
+div.eighth-block.open-passes > div.block-header > .btn-link {
     color: rgb(255, 107, 0); /* orange */
 }
 
@@ -284,14 +288,25 @@ div.eighth-block.open-passes > div.block-header > .block-letter {
 
 .block-info {
     font-size: 11px;
-    margin-left: 28px;
+    margin-left: 15px;
     white-space: nowrap;
+    margin-top: -4px;
+    margin-bottom: -4px;
+}
+
+.block-info.with-timeleft {
+    margin-bottom: 4px;
+}
+
+.eighth-block:last-child .block-info {
+    margin-bottom: 4px;
 }
 
 .block-timeleft {
     font-size: 11px;
     margin-left: 28px;
     white-space: nowrap;
+    margin-top: -4px;
 }
 
 
@@ -328,4 +343,130 @@ div.eighth-block.open-passes > div.block-header > .block-letter {
         display: block;
         width: 100%;
     }
+}
+
+.btn-link {
+    text-decoration: none;
+    color: rgb(72,72,72);
+    display: inline-block;
+    line-height: 18px;
+    padding: 0 3px;
+    margin: 5px 0; /*0 -4px;*/
+    color: rgb(72, 72, 72);
+
+    font-size: 10px;
+    font-weight: bold;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.9);
+    white-space: nowrap;
+    -webkit-border-radius: 3px;
+    -moz-border-radius: 3px;
+    border-radius: 3px;
+    background: #f7f7f4;
+    background: -moz-linear-gradient(top, rgb(247,247,244) 0%, rgb(234,234,234) 100%);
+    background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,rgb(247,247,244)), color-stop(100%,rgb(234,234,234)));
+    background: -webkit-linear-gradient(top, rgb(247,247,244) 0%,rgb(234,234,234) 100%);
+    background: -o-linear-gradient(top, rgb(247,247,244) 0%,rgb(234,234,234) 100%);
+    background: -ms-linear-gradient(top, rgb(247,247,244) 0%,rgb(234,234,234) 100%);
+    background: linear-gradient(to bottom, rgb(247,247,244) 0%,rgb(234,234,234) 100%);
+    filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#f7f7f4', endColorstr='#eaeaea',GradientType=0 );
+    border: 1px solid rgb(221, 221, 221);
+    border-bottom-color: rgb(197, 197, 197);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    -pie-box-shadow: none;
+    vertical-align: middle;
+    cursor: pointer;
+    -webkit-user-select: none;
+    -khtml-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    -o-appearance: none;
+    appearance: none;
+    behavior: url("/static/js/PIE/PIE.htc");
+}
+
+a.btn-link:link, a.btn-link:visited, a.btn-link:hover, a.btn-link:active {
+    color: rgb(72, 72, 72);
+}
+
+.eighth-widget .block-header a.btn-link {
+    width: 37px;
+}
+
+.sponsor-widget .block-header a.btn-link {
+    width: 66px;
+}
+
+.block-header a.btn-link {
+    text-align: center;
+}
+
+.block-header i.fa-arrow-right {
+    /* make arrow take less space */
+    margin: 0 -2px 0 0;
+}
+
+.block-header i.fa-check {
+    /* make check take less space */
+    margin: 0 -3px 0 -2px;
+}
+
+/* BIRTHDAYS */
+.birthdays-widget .widget-content {
+    padding: 5px 15px;
+}
+
+.birthdays-widget .widget-content table {
+    width: 100%;
+}
+
+.birthdays-widget .widget-title form {
+    display: inline;
+    float: right;
+}
+
+.birthdays-widget .birthday-field {
+    background: transparent;
+    border: 1px solid rgb(216,216,216);
+    padding: 2px 4px;
+    width: 14px;
+    text-align: center;
+}
+
+.birthdays-widget input[name="birthday_month"] {
+    margin-right: -3px;
+    border-right: 0;
+    padding-right: 5px;
+    text-align: right;
+}
+
+.birthdays-widget .slash {
+    color: black;
+    font-weight: normal;
+}
+
+.birthdays-widget input[name="birthday_day"] {
+    margin-left: -2px;
+    border-left: 0;
+    text-align: left;
+}
+
+.birthdays-widget input[type="submit"] {
+    margin-top: -1px;
+}
+
+/* LINKS */
+.links-widget .widget-content {
+    padding: 5px 10px;
+}
+
+.links-widget table {
+    width: 100%;
+}
+
+/* SENIORS */
+.seniors-widget .widget-content {
+    padding: 5px;
 }

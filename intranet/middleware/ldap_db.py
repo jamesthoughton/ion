@@ -2,11 +2,8 @@
 from __future__ import unicode_literals
 
 import logging
-import os
-from django.contrib.auth import logout
-from django.shortcuts import redirect
+from django.contrib import messages
 from ..db.ldap_db import LDAPConnection
-from ..utils import urls
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +19,14 @@ class CheckLDAPBindMiddleware:
         master_pwd_backend = "MasterPasswordAuthenticationBackend"
         if (LDAPConnection().did_use_simple_bind() and
                 not auth_backend.endswith(master_pwd_backend)):
-            #if request.user.is_eighth_admin:
+            # if request.user.is_eighth_admin:
             #    logger.info("Simple bind being used: staying logged in because eighth admin.")
             #    return response
-
+            logger.info("LDAP simple bind being used for {}".format(request.user if request.user else None))
+            messages.error(request, "Access to directory information may be limited: LDAP issue. Try logging out and back in.")
+            """
             logger.info("Simple bind being used: Destroying kerberos cache and logging out")
+
             try:
                 kerberos_cache = request.session["KRB5CCNAME"]
                 os.system("/usr/bin/kdestroy -c " + kerberos_cache)
@@ -39,5 +39,5 @@ class CheckLDAPBindMiddleware:
             response["Location"] = urls.add_get_parameters(
                 url, {"next": request.path}, percent_encode=False)
             return response
-
+            """
         return response

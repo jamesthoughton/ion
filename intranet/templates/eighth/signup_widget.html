@@ -10,7 +10,7 @@
             Upcoming Eighth Periods
         </h2>
         <div class="info">
-            <a href="{% url 'eighth_signup' %}" class="ui-link">View more blocks</a>
+            <a href="{% url 'eighth_signup' %}" class="btn-link">View more blocks</a>
         </div>
         
     </div>
@@ -18,35 +18,51 @@
     {% for block in schedule %}
         <div class="eighth-block clickable {{ block.flags }}">
             <div class="block-header">
-                <span class="block-letter"{% if block.block.letter_width %} style="width: {{ block.block.letter_width }}px"{% endif %}>
-                    {{ block.block_letter }}
+                <span class="block-letter-date">
+                    <span class="block-letter">
+                        {{ block.block_letter }}
+                    </span>
+                    <span class="block-date">
+                        {{ block.date|date:"D, N j" }}
+                    </span>
                 </span>
-                {{ block.date|date:"D, N j" }}
                 {% if block.locked %}
                     {% if block.current_signup %}
-                        <span class="block-signup locked{% if block.is_today %} today{% endif %}" title="{% if block.current_signup_cancelled %}Your signup was cancelled. Questions? Ask 8th Pd. Office{% else %}You have signed up for this activity.{% endif %}">
-                            <i class="fa fa-lock"></i>
-                            {% if block.current_signup_cancelled %}Cancelled - {% endif %}{{ block.current_signup }}
+                        <span class="block-signup locked{% if block.is_today %} today{% endif %}" title="{% if block.current_signup_cancelled %}Your signup was cancelled. Questions? Ask 8th Pd. Office{% else %}You {% if block.current_signup_sticky %}are stuck to this activity. Questions? Ask 8th Pd. Office{% else %}have signed up for this activity.{% endif %}{% endif %}">
+                            <!--<i class="fa fa-lock"></i>-->
+                            {{ block.current_signup }}
                         </span>
                     {% else %}
                          <span class="block-signup locked no-activity-selected{% if block.is_today %} today{% endif %}" title="You have not selected an activity, and signups are locked. Questions? Ask 8th Pd. Office">
-                            <i class="fa fa-lock"></i>
+                            <!--<i class="fa fa-lock"></i>-->
                             No activity selected
                         </span>
                     {% endif %}
-                    <a href="{% url 'eighth_signup' block.id %}" class="ui-link" title="Signups are locked.">Locked</a>
+                    <a href="{% url 'eighth_signup' block.id %}" class="btn-link" title="Signups are locked.">
+                        <i class="fa fa-lock"></i>
+                        View
+                    </a>
                 {% elif block.current_signup %}
-                    <span class="block-signup{% if block.is_today %} today{% endif %}" title="{% if block.current_signup_cancelled %}The activity you signed up for was cancelled. Click to change.{% else %}You have signed up for this activity. Click to change.{% endif %}">
-                        {% if block.current_signup_cancelled %}Cancelled - {% endif %}{{ block.current_signup }}
+                    <span class="block-signup{% if block.is_today %} today{% endif %}" title="{% if block.current_signup_cancelled %}The activity you signed up for was cancelled. Click to change.{% else %}You {% if block.current_signup_sticky %}are stuck to this activity. Questions? Ask 8th Pd. Office{% else %}have signed up for this activity. Click to change.{% endif %}{% endif %}">
+                        {{ block.current_signup }}
                     </span>
-                    <a href="{% url 'eighth_signup' block.id %}" class="ui-link" title="Click to change.">Change</a>
+                    {% if block.current_signup_sticky %}
+                        <a href="{% url 'eighth_signup' block.id %}" class="btn-link" title="You are stuck to this activity. Click to view other activities.">Stickied</a>
+                    {% else %}
+                        <a href="{% url 'eighth_signup' block.id %}" class="btn-link" title="Click to change.">Change</a>
+                    {% endif %}
                 {% else %}
                     <span class="block-signup no-activity-selected{% if block.is_today %} today{% endif %}" title="You have not selected an activity. Click to change.">
                         No activity selected
                     </span>
-                    <a href="{% url 'eighth_signup' block.id %}" class="ui-link" title="Click to sign up.">Sign Up</a>
+                    <a href="{% url 'eighth_signup' block.id %}" class="btn-link" title="Click to sign up.">Sign Up</a>
                 {% endif %}
             </div>
+            {% if block.current_signup_cancelled %}
+                <div class="block-info{% if block.is_today and block.signup_time %} with-timeleft{% endif %}">
+                    <i class="fa fa-info-circle"></i> This activity was <b style="color: red">cancelled.</b> {% if block.locked %}Visit 8th Pd. Office{% else %}Select another activity.{% endif %}
+                </div>
+            {% endif %}
             {% if block.is_today and block.signup_time %}
                 <div class="block-timeleft">
                     {% if block.signup_time_future %}
@@ -58,11 +74,6 @@
                             Signups are <b>closing</b>. Questions? Visit 8th Pd. Office
                         {% endif %}
                     {% endif %}
-                </div>
-            {% endif %}
-            {% if block.current_signup_cancelled %}
-                <div class="block-info">
-                    <i class="fa fa-info-circle"></i> This activity was cancelled. {% if block.locked %}Visit 8th Pd. Office{% else %}Select another activity.{% endif %}
                 </div>
             {% endif %}
         </div>

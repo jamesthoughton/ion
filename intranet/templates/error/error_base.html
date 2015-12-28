@@ -59,6 +59,19 @@
         h2 {
             font-size: 20px;
         }
+
+        @media (max-width: 500px) {
+            .center-wrapper {
+                left: 0;
+                margin-left: 0;
+                width: 100%;
+            }
+
+            h1 {
+                line-height: 30px;
+                height: auto;
+            }
+        }
     </style>
 </head>
 <body class="notransition">
@@ -66,8 +79,8 @@
         <div class="center">
             <div class="error">
                 <div class="logo"></div>
-                <h1>{% block heading %}{% endblock %}</h1>
-                <p>{% block description %}{% endblock %}</p>
+                <h1>{% block heading %}{{ heading }}{% endblock %}</h1>
+                <p>{% block description %}{{ description }}{% endblock %}</p>
             </div>
         </div>
     </div>

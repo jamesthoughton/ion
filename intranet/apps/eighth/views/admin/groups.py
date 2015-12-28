@@ -5,9 +5,11 @@ from six.moves import cPickle as pickle
 import csv
 import logging
 import re
+from cacheops import invalidate_obj, invalidate_model
 from django import http
 from django.contrib import messages
 from django.core.urlresolvers import reverse
+from django.core.cache import cache
 from django.shortcuts import redirect, render
 from formtools.wizard.views import SessionWizardView
 from ....auth.decorators import eighth_admin_required
@@ -52,12 +54,25 @@ def edit_group_view(request, group_id):
         raise http.Http404
 
     if request.method == "POST":
+        invalidate_model(Group)
+        if group.name.lower().startswith("all students"):
+            cache.delete("users:students")
+        if "remove_all" in request.POST:
+            users = group.user_set.all()
+            num = users.count()
+            for u in users:
+                group.user_set.remove(u)
+            group.save()
+            invalidate_obj(group)
+            messages.success(request, "Successfully deleted {} members of the group.".format(num))
+            return redirect("eighth_admin_edit_group", group.id)
         form = GroupForm(request.POST, instance=group)
         if form.is_valid():
             if 'student_visible' in form.cleaned_data:
                 props = group.properties
                 props.student_visible = form.cleaned_data['student_visible']
                 props.save()
+                invalidate_obj(props)
 
             form.save()
             messages.success(request, "Successfully edited group.")
@@ -77,7 +92,7 @@ def edit_group_view(request, group_id):
             "first_name": user.first_name,
             "last_name": user.last_name,
             "student_id": user.student_id,
-            "email": emails[0] if emails else "",
+            "email": user.tj_email if user.tj_email else emails[0] if emails else "",
             "grade": grade.number if user.grade else "Staff"
         })
     members = sorted(members, key=lambda m: (m["last_name"], m["first_name"]))
@@ -96,20 +111,22 @@ def edit_group_view(request, group_id):
     if "possible_student" in request.GET:
         student_ids = request.GET.getlist("possible_student")
         possible_students = User.objects.get(id__in=student_ids)
-        context["possible_students"] = students
+        context["possible_students"] = possible_students
 
     return render(request, "eighth/admin/edit_group.html", context)
+
 
 def get_file_string(fileobj):
     filetext = ""
     for chunk in fileobj.chunks():
-        filetext += chunk
+        filetext += unicode(chunk, "ISO-8859-1")
     return filetext
+
 
 def get_user_info(key, val):
     if key in ["username", "id"]:
         try:
-            u = User.objects.filter(**{ key: val })
+            u = User.objects.filter(**{key: val})
         except ValueError:
             return []
         return u
@@ -142,18 +159,36 @@ def get_user_info(key, val):
         return []
 
 
-
 def handle_group_input(filetext):
     logger.debug(filetext)
     lines = filetext.splitlines()
+
     return find_users_input(lines)
-    
+
+
 def find_users_input(lines):
     sure_users = []
     unsure_users = []
     for line in lines:
         done = False
         line = line.strip()
+
+        if "," in line:
+            parts = line.split(",")
+            if len(parts) == 3:
+                for part in parts:
+                    if len(part) == 7:
+                        # Try student ID
+                        u = User.objects.user_with_student_id(part)
+                        if u:
+                            sure_users.append([line, u])
+                            done = True
+                            break
+            else:
+                line = " ".join(parts)
+
+            if done:
+                continue
 
         # Try username, user id
         for i in ["username", "id", "student_id", "name"]:
@@ -162,6 +197,14 @@ def find_users_input(lines):
                 sure_users.append([line, r[0]])
                 done = True
                 break
+
+        if not done and " " in line:
+            # Reverse
+            new_line = " ".join(line.split(" ")[::-1])
+            r = get_user_info("name", new_line)
+            if r:
+                sure_users.append([line, r[0]])
+                done = True
 
         if not done:
             unsure_users.append([line, r])
@@ -172,6 +215,7 @@ def find_users_input(lines):
     logger.debug(unsure_users)
 
     return sure_users, unsure_users
+
 
 @eighth_admin_required
 def upload_group_members_view(request, group_id):
@@ -201,18 +245,40 @@ def upload_group_members_view(request, group_id):
                     user.groups.add(group)
                     user.save()
                     num_added += 1
+            invalidate_obj(group)
             messages.success(request, "{} added to group {}".format(num_added, group))
             return redirect("eighth_admin_edit_group", group.id)
-
+        elif "import_group" in request.POST:
+            try:
+                import_group = Group.objects.get(id=request.POST["import_group"])
+            except Group.DoesNotExist:
+                raise http.Http404
+            num_users = import_group.user_set.count()
+            if "import_confirm" in request.POST:
+                for member in import_group.user_set.all():
+                    member.groups.add(group)
+                    member.save()
+                invalidate_obj(group)
+                messages.success(request, "Added {} users from {} to {}".format(num_users, import_group, group))
+                return redirect("eighth_admin_edit_group", group.id)
+            return render(request, "eighth/admin/upload_group.html", {
+                "admin_page_title": "Import Group Members: {}".format(group),
+                "stage": "import_confirm",
+                "group": group,
+                "import_group": import_group,
+                "num_users": num_users
+            })
 
     else:
         form = UploadGroupForm()
+    all_groups = Group.objects.order_by("name")
     context = {
-        "admin_page_title": "Upload Group Info",
+        "admin_page_title": "Upload/Import Group Members: {}".format(group),
         "form": form,
         "stage": stage,
         "data": data,
-        "group": group
+        "group": group,
+        "all_groups": all_groups
     }
 
     if filetext:
@@ -253,12 +319,13 @@ def download_group_csv_view(request, group_id):
         raise http.Http404
 
     response = http.HttpResponse(content_type="text/csv")
-    response["Content-Disposition"] = "attachment; filename=\"{}\"".format(group.name)
+    response["Content-Disposition"] = "attachment; filename=\"{}.csv\"".format(group.name)
 
     writer = csv.writer(response)
     writer.writerow(["Last Name", "First Name", "Student ID", "Grade", "Email"])
-
-    for user in group.user_set.all():
+    users = group.user_set.all()
+    users = sorted(users, key=lambda m: (m.last_name, m.first_name))
+    for user in users:
         row = []
         row.append(user.last_name)
         row.append(user.first_name)
@@ -266,7 +333,7 @@ def download_group_csv_view(request, group_id):
         grade = user.grade
         row.append(grade.number if grade else "Staff")
         emails = user.emails
-        row.append(emails[0] if emails else None)
+        row.append(user.tj_email if user.tj_email else emails[0] if emails else None)
         writer.writerow(row)
 
     return response
@@ -308,7 +375,7 @@ class EighthAdminSignUpGroupWizard(SessionWizardView):
     def get_context_data(self, form, **kwargs):
         context = super(EighthAdminSignUpGroupWizard,
                         self).get_context_data(form=form, **kwargs)
-        
+
         block = self.get_cleaned_data_for_step("block")
         if block:
             context.update({"block_obj": block["block"]})
@@ -329,8 +396,30 @@ class EighthAdminSignUpGroupWizard(SessionWizardView):
         except Group.DoesNotExist:
             raise http.Http404
 
-        users = group.user_set.all()
+        query = "?schact={}".format(scheduled_activity.id)
+        return redirect(reverse("eighth_admin_signup_group_action", args=[group.id]) + query)
 
+eighth_admin_signup_group = eighth_admin_required(
+    EighthAdminSignUpGroupWizard.as_view(
+        EighthAdminSignUpGroupWizard.FORMS
+    )
+)
+
+
+def eighth_admin_signup_group_action(request, group_id):
+    schact_id = request.GET["schact"]
+
+    try:
+        scheduled_activity = EighthScheduledActivity.objects.get(id=schact_id)
+        block = scheduled_activity.block
+        activity = scheduled_activity.activity
+        group = Group.objects.get(id=group_id)
+    except (EighthScheduledActivity.DoesNotExist, Group.DoesNotExist):
+        raise http.Http404
+
+    users = group.user_set.all()
+
+    if "confirm" in request.POST:
         signup_bulk = []
         if not activity.both_blocks:
             EighthSignup.objects.filter(
@@ -361,14 +450,15 @@ class EighthAdminSignUpGroupWizard(SessionWizardView):
 
         EighthSignup.objects.bulk_create(signup_bulk)
 
-        messages.success(self.request, "Successfully signed up group for activity.")
+        messages.success(request, "Successfully signed up group for activity.")
         return redirect("eighth_admin_dashboard")
 
-eighth_admin_signup_group = eighth_admin_required(
-    EighthAdminSignUpGroupWizard.as_view(
-        EighthAdminSignUpGroupWizard.FORMS
-    )
-)
+    return render(request, "eighth/admin/sign_up_group.html", {
+        "admin_page_title": "Confirm Group Signup",
+        "scheduled_activity": scheduled_activity,
+        "group": group,
+        "users_num": users.count()
+    })
 
 
 class EighthAdminDistributeGroupWizard(SessionWizardView):
@@ -385,6 +475,19 @@ class EighthAdminDistributeGroupWizard(SessionWizardView):
 
     def get_template_names(self):
         return [self.TEMPLATES[self.steps.current]]
+
+    def dispatch(self, request, *args, **kwargs):
+        self.group_id = kwargs.get('group_id', None)
+        try:
+            self.group = Group.objects.get(id=self.group_id)
+        except Group.DoesNotExist:
+            if self.request.resolver_match.url_name == "eighth_admin_distribute_unsigned":
+                self.group = False
+            else:
+                raise http.Http404
+
+        return super(EighthAdminDistributeGroupWizard,
+                     self).dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self, step):
         kwargs = {}
@@ -409,6 +512,26 @@ class EighthAdminDistributeGroupWizard(SessionWizardView):
     def get_context_data(self, form, **kwargs):
         context = super(EighthAdminDistributeGroupWizard,
                         self).get_context_data(form=form, **kwargs)
+
+        block = self.get_cleaned_data_for_step("block")
+
+        if self.group:
+            context.update({"group": self.group})
+        elif block:
+            unsigned = block["block"].get_unsigned_students()
+            context.update({
+                "users": unsigned,
+                "eighthblock": block["block"]
+            })
+
+        if "block" in self.request.GET:
+            block_id = self.request.GET["block"]
+            context["redirect_block_id"] = block_id
+
+        if self.request.resolver_match.url_name == "eighth_admin_distribute_unsigned":
+            context.update({"users_type": "unsigned"})
+            context.update({"group": False})
+
         context.update({"admin_page_title": "Distribute Group Members Among Activities"})
         return context
 
@@ -425,7 +548,7 @@ class EighthAdminDistributeGroupWizard(SessionWizardView):
                 schact = EighthScheduledActivity.objects.get(block=block, activity=act)
                 schact_ids.append(schact.id)
             except EighthScheduledActivity.DoesNotExist:
-                raise Http404
+                raise http.Http404
 
         args = ""
         for said in schact_ids:
@@ -434,7 +557,7 @@ class EighthAdminDistributeGroupWizard(SessionWizardView):
         if "group_id" in kwargs:
             gid = kwargs["group_id"]
             args += "&group={}".format(gid)
-        
+
         if self.request.resolver_match.url_name == "eighth_admin_distribute_unsigned":
             args += "&unsigned=1&block={}".format(block.id)
 
@@ -521,7 +644,6 @@ def eighth_admin_distribute_action(request):
             if "limit" in request.GET:
                 users = users[0:int(request.GET.get('limit'))]
 
-
         # Sort by last name
         users = sorted(list(users), key=lambda x: x.last_name)
 
@@ -561,18 +683,25 @@ def add_member_to_group_view(request, group_id):
             user.save()
             if len(user_objects) < 25:
                 next_url += "added={}&".format(user.id)
+        invalidate_obj(group)
         messages.success(request, "Successfully added {} user{} to the group.".format(len(user_objects), "s" if len(user_objects) != 1 else ""))
         return redirect(next_url)
-
 
     if "query" not in request.POST:
         return redirect(next_url + "?error=s")
 
     query = request.POST["query"]
+    from_sid = User.objects.user_with_student_id(query)
+    if from_sid:
+        from_sid.groups.add(group)
+        from_sid.save()
+        messages.success(request, "Successfully added user \"{}\" to the group.".format(from_sid.full_name))
+        return redirect(next_url + "?added=" + str(from_sid.id))
+
     errors, results = get_search_results(query)
     logger.debug(results)
-    if results["hits"]["total"] == 1:
-        user_id = results["hits"]["hits"][0]["_source"]["ion_id"]
+    if len(results) == 1:
+        user_id = results[0].id
         logger.debug("User id: {}".format(user_id))
         user = User.objects.user_with_ion_id(user_id)
 
@@ -580,10 +709,11 @@ def add_member_to_group_view(request, group_id):
         user.save()
         messages.success(request, "Successfully added user \"{}\" to the group.".format(user.full_name))
         return redirect(next_url + "?added=" + str(user_id))
-    elif results["hits"]["total"] == 0:
+    elif len(results) == 0:
         return redirect(next_url + "?error=n")
     else:
-        users = [r["_source"] for r in results["hits"]["hits"]]
+        users = results
+        results = sorted(results, key=lambda x: (x.last_name, x.first_name))
         context = {
             "query": query,
             "users": users,
@@ -591,8 +721,6 @@ def add_member_to_group_view(request, group_id):
             "admin_page_title": "Add Members to Group"
         }
         return render(request, "eighth/admin/possible_students_add_group.html", context)
-
-    
 
 
 @eighth_admin_required
@@ -615,6 +743,7 @@ def remove_member_from_group_view(request, group_id, user_id):
 
     group.user_set.remove(user)
     group.save()
+    invalidate_obj(group)
     messages.success(request, "Successfully removed user \"{}\" from the group.".format(user.full_name))
 
     return redirect(next_url)

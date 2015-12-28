@@ -4,7 +4,6 @@ from __future__ import unicode_literals
 from django.contrib.auth.models import Group as DjangoGroup
 from django.db import models
 from django.db.models import Manager, Q
-from ..groups.models import Group
 
 """
     Sample TJ configuration:
@@ -18,9 +17,10 @@ from ..groups.models import Group
                                   code="afs",
                                   address="remote.tjhsst.edu",
                                   directory="/afs/csl/",
-                                  linux=True)
+                                  linux=True,
+                                  available_to_all=True)
 
-        afs.groups.add(Group.objects.get(name="admin_all"))
+        afs.groups_visible.add(Group.objects.get(name="admin_all"))
 
         Host.objects.create(name="Home Folder (M)",
                             code="tj03_m",
@@ -33,15 +33,17 @@ from ..groups.models import Group
                             address="tj03.local.tjhsst.edu",
                             directory="/R/",
                             windows=True)
-        
+
         Host.objects.create(name="Windows Root",
                             code="win",
                             address="tj03.local.tjhsst.edu",
                             windows=True)
-        
+
 """
 
+
 class HostManager(Manager):
+
     def visible_to_user(self, user):
         """Get a list of hosts available to a given user.
 
@@ -50,6 +52,7 @@ class HostManager(Manager):
 
         return Host.objects.filter(Q(groups_visible__in=user.groups.all()) |
                                    Q(groups_visible__isnull=True))
+
 
 class Host(models.Model):
     objects = HostManager()
@@ -63,6 +66,8 @@ class Host(models.Model):
     linux = models.BooleanField(default=False)
 
     groups_visible = models.ManyToManyField(DjangoGroup, blank=True)
+
+    available_to_all = models.BooleanField(default=False)
 
     def visible_to(self, user):
         if self.groups_visible.count() == 0:

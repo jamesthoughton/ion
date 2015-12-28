@@ -5,11 +5,11 @@ from datetime import datetime
 from django.contrib.auth.models import Group as DjangoGroup
 from django.db import models
 from django.db.models import Manager, Q
-from ..groups.models import Group
 from ..users.models import User
 
 
 class AnnouncementManager(Manager):
+
     def visible_to_user(self, user):
         """Get a list of visible announcements for a given user (usually
         request.user).
@@ -33,6 +33,7 @@ class AnnouncementManager(Manager):
         """
         ids = user.announcements_hidden.all().values_list("announcement__id")
         return Announcement.objects.filter(id__in=ids)
+
 
 class AnnouncementUserMap(models.Model):
     """Represents mapping fields between announcements and users.
@@ -60,6 +61,7 @@ class AnnouncementUserMap(models.Model):
 
     def __unicode__(self):
         return "UserMap: {}".format(self.announcement.title)
+
 
 class Announcement(models.Model):
 
@@ -95,6 +97,7 @@ class Announcement(models.Model):
     expiration_date = models.DateTimeField(auto_now=False, default=datetime(3000, 1, 1))
 
     notify_post = models.BooleanField(default=True)
+    notify_email_all = models.BooleanField(default=False)
 
     pinned = models.BooleanField(default=False)
 
@@ -112,7 +115,18 @@ class Announcement(models.Model):
             return AnnouncementUserMap.objects.create(
                 announcement=self
             )
-    
+
+    @property
+    def is_this_year(self):
+        """Return whether the announcement was created after September 1st
+           of this school year."""
+        now = datetime.now().date()
+        ann = self.added.date()
+        if now.month < 9:
+            return ((ann.year == now.year and ann.month < 9) or
+                    (ann.year == now.year - 1 and ann.month >= 9))
+        else:
+            return ann.year == now.year and ann.month >= 9
 
     class Meta:
         ordering = ["-pinned", "-added"]
@@ -157,13 +171,13 @@ class AnnouncementRequest(models.Model):
     author = models.CharField(max_length=63, blank=True)
 
     expiration_date = models.DateTimeField(auto_now=False, default=datetime(3000, 1, 1))
-    notes = models.TextField()
+    notes = models.TextField(blank=True)
 
     added = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
 
     user = models.ForeignKey(User, null=True, blank=True, related_name="user")
-    
+
     teachers_requested = models.ManyToManyField(User, blank=False, related_name="teachers_requested")
     teachers_approved = models.ManyToManyField(User, blank=True, related_name="teachers_approved")
 
@@ -180,4 +194,3 @@ class AnnouncementRequest(models.Model):
 
     class Meta:
         ordering = ["-added"]
-

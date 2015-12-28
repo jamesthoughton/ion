@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 
 import csv
 import logging
+from cacheops import invalidate_obj
 from collections import defaultdict
 from six.moves import cPickle as pickle
 from django import http
@@ -17,6 +18,7 @@ from ...models import EighthRoom, EighthBlock, EighthScheduledActivity
 from ...utils import get_start_date
 
 logger = logging.getLogger(__name__)
+
 
 @eighth_admin_required
 def add_room_view(request):
@@ -129,7 +131,6 @@ def room_sanity_check_view(request):
 def room_utilization_for_block_view(request):
     blocks = EighthBlock.objects.all()
     block_id = request.GET.get("block", None)
-    block = None
 
     if block_id:
         return redirect("eighth_admin_room_utilization", block_id, block_id)
@@ -179,28 +180,42 @@ class EighthAdminRoomUtilizationWizard(SessionWizardView):
         context = super(EighthAdminRoomUtilizationWizard,
                         self).get_context_data(form=form, **kwargs)
         context.update({"admin_page_title": "Room Utilization"})
+        this_yr = EighthBlock.objects.get_blocks_this_year()
+        context.update({
+            "first_block": this_yr.first().id,
+            "last_block": this_yr.last().id,
+            "all_rooms": EighthRoom.objects.all()
+        })
         return context
 
     def done(self, form_list, **kwargs):
         start_block = form_list[0].cleaned_data["block"]
         end_block = form_list[1].cleaned_data["block"]
         return redirect("eighth_admin_room_utilization", start_block.id, end_block.id)
-        
+
+
 @eighth_admin_required
 def room_utilization_action(request, start_id, end_id):
     try:
         start_block = EighthBlock.objects.get(id=start_id)
         end_block = EighthBlock.objects.get(id=end_id)
+
+        one_block = (start_id == end_id)
     except EighthBlock.DoesNotExist:
         raise http.Http404
 
     sched_acts = (EighthScheduledActivity.objects
-                                         .exclude(activity__deleted=True)
-                                        #.exclude(cancelled=True) # include cancelled activities
-                                         .filter(block__date__gte=start_block.date,
-                                                 block__date__lte=end_block.date)
-                                         .order_by("block__date",
-                                                   "block__block_letter"))
+                                         .exclude(activity__deleted=True))
+    # .exclude(cancelled=True) # include cancelled activities
+    if not one_block:
+        sched_acts = (sched_acts.filter(block__date__gte=start_block.date,
+                                        block__date__lte=end_block.date))
+    else:
+        sched_acts = sched_acts.filter(block=start_block)
+
+    sched_acts = (sched_acts.order_by("block__date",
+                                      "block__block_letter"))
+
     all_rooms = EighthRoom.objects.all().order_by("name")
 
     room_ids = request.GET.getlist("room")
@@ -214,11 +229,13 @@ def room_utilization_action(request, start_id, end_id):
     else:
         rooms = all_rooms
 
+    sched_acts = sorted(sched_acts, key=lambda x: ("{}".format(x.block), "{}".format(x.get_true_rooms())))
+
     # If a "show" GET parameter is defined, only show the values that are given.
     show_vals = request.GET.getlist("show")
-    show_opts = ["block", "rooms", "aid", "activity", "sponsors", "signups", "capacity", "comments", "admin_comments"]
-    show_opts_defaults = ["block", "rooms", "aid", "activity", "sponsors", "signups", "capacity"]
-    show_opts_hidden = ["comments", "admin_comments"]
+    show_opts = ["block", "rooms", "capacity", "signups", "aid", "activity", "comments", "sponsors", "admin_comments"]
+    show_opts_defaults = ["block", "rooms", "capacity", "signups", "aid", "activity", "comments", "sponsors"]
+    show_opts_hidden = ["admin_comments"]
     if len(show_vals) == 0:
         show = {name: True for name in show_opts_defaults}
         show.update({name: False for name in show_opts_hidden})
@@ -265,18 +282,18 @@ def room_utilization_action(request, start_id, end_id):
                 row.append(sch_act.block)
             if show["rooms"]:
                 row.append(";".join([str(rm) for rm in sch_act.get_true_rooms()]))
+            if show["capacity"]:
+                row.append(sch_act.get_true_capacity())
+            if show["signups"]:
+                row.append(sch_act.members.count())
             if show["aid"]:
                 row.append(sch_act.activity.aid)
             if show["activity"]:
                 row.append(sch_act.activity)
-            if show["sponsors"]:
-                row.append(";".join([str(sp) for sp in sch_act.get_true_sponsors()]))
-            if show["signups"]:
-                row.append(sch_act.members.count())
-            if show["capacity"]:
-                row.append(sch_act.get_true_capacity())
             if show["comments"]:
                 row.append(sch_act.comments)
+            if show["sponsors"]:
+                row.append(";".join([str(sp) for sp in sch_act.get_true_sponsors()]))
             if show["admin_comments"]:
                 row.append(sch_act.admin_comments)
 

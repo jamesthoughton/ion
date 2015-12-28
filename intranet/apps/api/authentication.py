@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
-import base64
 from rest_framework import authentication, exceptions
 from intranet.apps.auth.backends import KerberosAuthenticationBackend
 
+
 class KerberosBasicAuthentication(authentication.BasicAuthentication):
+
     def authenticate(self, request):
         request.session['_auth_user_backend'] = "intranet.apps.auth.backends.KerberosAuthenticationBackend"
         return super(KerberosBasicAuthentication, self).authenticate(request)
@@ -21,4 +22,3 @@ class KerberosBasicAuthentication(authentication.BasicAuthentication):
             raise exceptions.AuthenticationFailed("Invalid username/password.")
 
         return (user, None)
-

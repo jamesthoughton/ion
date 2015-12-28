@@ -8,9 +8,8 @@ from requests_oauthlib import OAuth1
 from django.contrib import messages
 from django.core import exceptions
 from django.core.urlresolvers import reverse
-from django.template.loader import get_template
 from intranet import settings
-from ..notifications.emails import email_send
+from ..notifications.emails import email_send, email_send_bcc
 from ..users.models import User
 
 logger = logging.getLogger(__name__)
@@ -27,7 +26,7 @@ def request_announcement_email(request, form, obj):
 
     logger.debug(form.data)
     teacher_ids = form.data["teachers_requested"]
-    if type(teacher_ids) != list:
+    if not isinstance(teacher_ids, list):
         teacher_ids = [teacher_ids]
     logger.debug(teacher_ids)
     teachers = User.objects.filter(id__in=teacher_ids)
@@ -38,6 +37,7 @@ def request_announcement_email(request, form, obj):
     for teacher in teachers:
         emails.append(teacher.tj_email)
     logger.debug(emails)
+    logger.info("%s: Announcement request to %s, %s", request.user, teachers, emails)
     base_url = request.build_absolute_uri(reverse('index'))
     data = {
         "teachers": teachers,
@@ -46,7 +46,8 @@ def request_announcement_email(request, form, obj):
         "info_link": request.build_absolute_uri(reverse("approve_announcement", args=[obj.id])),
         "base_url": base_url
     }
-    email_send("announcements/emails/teacher_approve.txt", 
+    logger.info("%s: Announcement request %s", request.user, data)
+    email_send("announcements/emails/teacher_approve.txt",
                "announcements/emails/teacher_approve.html",
                data, subject, emails)
 
@@ -69,9 +70,10 @@ def admin_request_announcement_email(request, form, obj):
         "info_link": request.build_absolute_uri(reverse("admin_approve_announcement", args=[obj.id])),
         "base_url": base_url
     }
-    email_send("announcements/emails/admin_approve.txt", 
+    email_send("announcements/emails/admin_approve.txt",
                "announcements/emails/admin_approve.html",
                data, subject, emails)
+
 
 def announcement_approved_email(request, obj, req):
     """
@@ -86,7 +88,6 @@ def announcement_approved_email(request, obj, req):
 
     """ Email to teachers who approved. """
     teachers = req.teachers_approved.all()
-    
 
     teacher_emails = []
     for u in teachers:
@@ -128,8 +129,6 @@ def announcement_approved_email(request, obj, req):
         messages.success(request, "Sent teacher approved email to {} users".format(len(submitter_emails)))
 
 
-
-
 def announcement_posted_email(request, obj, send_all=False):
     """
         Send a notification posted email
@@ -164,7 +163,6 @@ def announcement_posted_email(request, obj, send_all=False):
                         emails.append(em)
                     users_send.append(u)
 
-
         logger.debug(users_send)
         logger.debug(emails)
 
@@ -179,9 +177,9 @@ def announcement_posted_email(request, obj, send_all=False):
             "info_link": url,
             "base_url": base_url
         }
-        email_send("announcements/emails/announcement_posted.txt",
-                   "announcements/emails/announcement_posted.html",
-                   data, subject, emails)
+        email_send_bcc("announcements/emails/announcement_posted.txt",
+                       "announcements/emails/announcement_posted.html",
+                       data, subject, emails)
         messages.success(request, "Sent email to {} users".format(len(users_send)))
     else:
         logger.debug("Emailing announcements disabled")
@@ -200,7 +198,7 @@ def announcement_posted_twitter(request, obj):
             text = "{}: {}... - {}".format(title, content[:content_len], url)
         else:
             text = "{}... - {}".format(title[:110], url)
-        logger.debug("Posting tweet: {}".format(text))
+        logger.debug("Posting tweet: %s", text)
 
         resp = notify_twitter(text)
         respobj = json.loads(resp)
@@ -225,9 +223,9 @@ def notify_twitter(status):
         return False
 
     auth = OAuth1(cfg["consumer_key"],
-                 cfg["consumer_secret"],
-                 cfg["access_token_key"],
-                 cfg["access_token_secret"])
+                  cfg["consumer_secret"],
+                  cfg["access_token_key"],
+                  cfg["access_token_secret"])
 
     data = {
         "status": status
